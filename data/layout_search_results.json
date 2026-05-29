@@ -1,0 +1,4192 @@
+{
+  "safe_area": {
+    "width_in": 94.0,
+    "height_in": 46.0
+  },
+  "stats": {
+    "iterations": 5382,
+    "quantity_combos_checked": 2097,
+    "quantity_combos_total": 2196,
+    "current_counts": [
+      10,
+      12,
+      7
+    ],
+    "elapsed_s": 586.711430699972,
+    "iterations_per_s": 9.173163702604263,
+    "best_score": 10163.661977136971,
+    "best_utilization": 0.9158186864014801,
+    "best_count": 8,
+    "results_kept": 77
+  },
+  "layouts": [
+    {
+      "counts": [
+        0,
+        3,
+        5
+      ],
+      "used_area_in2": 3960.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.9158186864014801,
+      "score": 10163.661977136971,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        3,
+        3
+      ],
+      "used_area_in2": 3960.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.9158186864014801,
+      "score": 10162.661977136971,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        3,
+        1
+      ],
+      "used_area_in2": 3960.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.9158186864014801,
+      "score": 10161.661977136971,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        2,
+        6
+      ],
+      "used_area_in2": 3792.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.8769657724329325,
+      "score": 9732.900559925101,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 24.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        2,
+        4
+      ],
+      "used_area_in2": 3792.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.8769657724329325,
+      "score": 9731.900559925101,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        2,
+        2
+      ],
+      "used_area_in2": 3792.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.8769657724329325,
+      "score": 9730.900559925101,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        4,
+        3
+      ],
+      "used_area_in2": 3696.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.8547641073080481,
+      "score": 9485.751178661174,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 66.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        4,
+        1
+      ],
+      "used_area_in2": 3696.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.8547641073080481,
+      "score": 9484.751178661174,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 54.2,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        6,
+        0
+      ],
+      "used_area_in2": 3600.0,
+      "used_width_in": 90.0,
+      "used_height_in": 40.2,
+      "utilization": 0.8325624421831638,
+      "score": 9328.649297453527,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        1,
+        3
+      ],
+      "used_area_in2": 3624.0,
+      "used_width_in": 92.2,
+      "used_height_in": 42.2,
+      "utilization": 0.8381128584643849,
+      "score": 9320.54699300811,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 20.2,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 56.2,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 20.2,
+          "y_in": 24.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 44.2,
+          "y_in": 24.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 68.2,
+          "y_in": 24.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        1,
+        7
+      ],
+      "used_area_in2": 3624.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.8381128584643849,
+      "score": 9302.139142713231,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 24.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.2,
+          "y_in": 24.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        1,
+        5
+      ],
+      "used_area_in2": 3624.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.8381128584643849,
+      "score": 9301.139142713231,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        3,
+        4
+      ],
+      "used_area_in2": 3528.0,
+      "used_width_in": 84.2,
+      "used_height_in": 44.2,
+      "utilization": 0.8159111933395005,
+      "score": 9116.081108274897,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 66.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 24.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        3,
+        2
+      ],
+      "used_area_in2": 3528.0,
+      "used_width_in": 84.2,
+      "used_height_in": 44.2,
+      "utilization": 0.8159111933395005,
+      "score": 9115.081108274897,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 54.2,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        3,
+        0
+      ],
+      "used_area_in2": 3528.0,
+      "used_width_in": 90.0,
+      "used_height_in": 44.2,
+      "utilization": 0.8159111933395005,
+      "score": 9052.989761449304,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        0,
+        8
+      ],
+      "used_area_in2": 3456.0,
+      "used_width_in": 90.0,
+      "used_height_in": 42.2,
+      "utilization": 0.7992599444958371,
+      "score": 8912.552051593442,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        0,
+        6
+      ],
+      "used_area_in2": 3456.0,
+      "used_width_in": 90.0,
+      "used_height_in": 42.2,
+      "utilization": 0.7992599444958371,
+      "score": 8911.552051593442,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        0,
+        4
+      ],
+      "used_area_in2": 3456.0,
+      "used_width_in": 90.0,
+      "used_height_in": 42.2,
+      "utilization": 0.7992599444958371,
+      "score": 8910.552051593442,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 36.0,
+          "y_in": 18.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        5,
+        1
+      ],
+      "used_area_in2": 3432.0,
+      "used_width_in": 90.0,
+      "used_height_in": 40.2,
+      "utilization": 0.793709528214616,
+      "score": 8893.685663572363,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        2,
+        5
+      ],
+      "used_area_in2": 3360.0,
+      "used_width_in": 84.2,
+      "used_height_in": 44.2,
+      "utilization": 0.7770582793709528,
+      "score": 8682.410579309424,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 24.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        2,
+        3
+      ],
+      "used_area_in2": 3360.0,
+      "used_width_in": 84.2,
+      "used_height_in": 44.2,
+      "utilization": 0.7770582793709528,
+      "score": 8681.410579309424,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 54.2,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        2,
+        1
+      ],
+      "used_area_in2": 3360.0,
+      "used_width_in": 84.2,
+      "used_height_in": 44.2,
+      "utilization": 0.7770582793709528,
+      "score": 8680.410579309424,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        4,
+        2
+      ],
+      "used_area_in2": 3264.0,
+      "used_width_in": 84.2,
+      "used_height_in": 40.2,
+      "utilization": 0.7548566142460684,
+      "score": 8520.865784393538,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 20.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        4,
+        0
+      ],
+      "used_area_in2": 3264.0,
+      "used_width_in": 86.4,
+      "used_height_in": 44.2,
+      "utilization": 0.7548566142460684,
+      "score": 8410.26699716154,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 20.2,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 56.400000000000006,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 20.2,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 50.2,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        3,
+        1,
+        0
+      ],
+      "used_area_in2": 3192.0,
+      "used_width_in": 92.2,
+      "used_height_in": 36.0,
+      "utilization": 0.7382053654024052,
+      "score": 8349.731166677704,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 20.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 44.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 68.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        1,
+        6
+      ],
+      "used_area_in2": 3192.0,
+      "used_width_in": 92.2,
+      "used_height_in": 36.2,
+      "utilization": 0.7382053654024052,
+      "score": 8347.418031248677,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 18.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 18.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 72.2,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        1,
+        4
+      ],
+      "used_area_in2": 3192.0,
+      "used_width_in": 78.2,
+      "used_height_in": 44.2,
+      "utilization": 0.7382053654024052,
+      "score": 8313.547190726555,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        1,
+        2
+      ],
+      "used_area_in2": 3192.0,
+      "used_width_in": 78.2,
+      "used_height_in": 44.2,
+      "utilization": 0.7382053654024052,
+      "score": 8312.547190726555,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        3,
+        3
+      ],
+      "used_area_in2": 3096.0,
+      "used_width_in": 84.2,
+      "used_height_in": 40.2,
+      "utilization": 0.7160037002775208,
+      "score": 8082.703574902694,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 20.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        3,
+        1
+      ],
+      "used_area_in2": 3096.0,
+      "used_width_in": 80.2,
+      "used_height_in": 44.2,
+      "utilization": 0.7160037002775208,
+      "score": 8040.419158246259,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 20.2,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 50.2,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 20.2,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 56.2,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        0,
+        7
+      ],
+      "used_area_in2": 3024.0,
+      "used_width_in": 72.0,
+      "used_height_in": 42.2,
+      "utilization": 0.6993524514338575,
+      "score": 7997.785177845683,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        0,
+        5
+      ],
+      "used_area_in2": 3024.0,
+      "used_width_in": 72.0,
+      "used_height_in": 42.2,
+      "utilization": 0.6993524514338575,
+      "score": 7996.785177845683,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        0,
+        3
+      ],
+      "used_area_in2": 3024.0,
+      "used_width_in": 72.0,
+      "used_height_in": 42.2,
+      "utilization": 0.6993524514338575,
+      "score": 7995.785177845683,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 36.0,
+          "y_in": 18.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        3,
+        0,
+        1
+      ],
+      "used_area_in2": 3024.0,
+      "used_width_in": 90.2,
+      "used_height_in": 36.0,
+      "utilization": 0.6993524514338575,
+      "score": 7930.788372431701,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 18.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 42.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 66.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        5,
+        0
+      ],
+      "used_area_in2": 3000.0,
+      "used_width_in": 90.0,
+      "used_height_in": 40.2,
+      "utilization": 0.6938020351526365,
+      "score": 7774.20774787794,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        2,
+        4
+      ],
+      "used_area_in2": 2928.0,
+      "used_width_in": 78.2,
+      "used_height_in": 40.2,
+      "utilization": 0.6771507863089732,
+      "score": 7710.912222367511,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 20.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.2,
+          "y_in": 20.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        2,
+        0
+      ],
+      "used_area_in2": 2928.0,
+      "used_width_in": 88.2,
+      "used_height_in": 36.0,
+      "utilization": 0.6771507863089732,
+      "score": 7698.654499522082,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 48.2,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 68.2,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        2,
+        2
+      ],
+      "used_area_in2": 2928.0,
+      "used_width_in": 72.0,
+      "used_height_in": 44.2,
+      "utilization": 0.6771507863089732,
+      "score": 7698.568194914769,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        4,
+        1
+      ],
+      "used_area_in2": 2832.0,
+      "used_width_in": 84.2,
+      "used_height_in": 40.2,
+      "utilization": 0.6549491211840888,
+      "score": 7393.16295998851,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 60.2,
+          "y_in": 20.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        1,
+        5
+      ],
+      "used_area_in2": 2760.0,
+      "used_width_in": 78.2,
+      "used_height_in": 38.2,
+      "utilization": 0.6382978723404256,
+      "score": 7314.908504740874,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 18.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.2,
+          "y_in": 18.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        1,
+        3
+      ],
+      "used_area_in2": 2760.0,
+      "used_width_in": 72.0,
+      "used_height_in": 42.2,
+      "utilization": 0.6382978723404256,
+      "score": 7298.351551208363,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 36.2,
+          "y_in": 18.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        1,
+        1
+      ],
+      "used_area_in2": 2760.0,
+      "used_width_in": 86.4,
+      "used_height_in": 36.0,
+      "utilization": 0.6382978723404256,
+      "score": 7276.3244024166015,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 18.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 42.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 66.4,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        3,
+        2
+      ],
+      "used_area_in2": 2664.0,
+      "used_width_in": 66.2,
+      "used_height_in": 44.2,
+      "utilization": 0.6160962072155411,
+      "score": 7077.40758896311,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        3,
+        0
+      ],
+      "used_area_in2": 2664.0,
+      "used_width_in": 66.2,
+      "used_height_in": 44.2,
+      "utilization": 0.6160962072155411,
+      "score": 7077.40758896311,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 36.2,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        3,
+        0,
+        0
+      ],
+      "used_area_in2": 2592.0,
+      "used_width_in": 72.0,
+      "used_height_in": 36.0,
+      "utilization": 0.599444958371878,
+      "score": 6998.44958371878,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        0,
+        6
+      ],
+      "used_area_in2": 2592.0,
+      "used_width_in": 72.0,
+      "used_height_in": 36.2,
+      "utilization": 0.599444958371878,
+      "score": 6996.924721840327,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 18.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 18.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        0,
+        2
+      ],
+      "used_area_in2": 2592.0,
+      "used_width_in": 84.2,
+      "used_height_in": 36.0,
+      "utilization": 0.599444958371878,
+      "score": 6854.556472079825,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 66.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        0,
+        4
+      ],
+      "used_area_in2": 2592.0,
+      "used_width_in": 72.0,
+      "used_height_in": 42.2,
+      "utilization": 0.599444958371878,
+      "score": 6854.530152439159,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 18.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 18.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        2,
+        3
+      ],
+      "used_area_in2": 2496.0,
+      "used_width_in": 60.0,
+      "used_height_in": 44.2,
+      "utilization": 0.5772432932469935,
+      "score": 6720.609403058171,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        2,
+        1
+      ],
+      "used_area_in2": 2496.0,
+      "used_width_in": 60.0,
+      "used_height_in": 44.2,
+      "utilization": 0.5772432932469935,
+      "score": 6719.609403058171,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        4,
+        0
+      ],
+      "used_area_in2": 2400.0,
+      "used_width_in": 80.0,
+      "used_height_in": 30.0,
+      "utilization": 0.5550416281221091,
+      "score": 6555.416281221091,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 20.0,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 40.0,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        1,
+        4
+      ],
+      "used_area_in2": 2328.0,
+      "used_width_in": 54.2,
+      "used_height_in": 44.2,
+      "utilization": 0.5383903792784459,
+      "score": 6362.669166546794,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 24.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 24.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        1,
+        2
+      ],
+      "used_area_in2": 2328.0,
+      "used_width_in": 54.2,
+      "used_height_in": 44.2,
+      "utilization": 0.5383903792784459,
+      "score": 6361.669166546794,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 20.2,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        1,
+        0
+      ],
+      "used_area_in2": 2328.0,
+      "used_width_in": 68.2,
+      "used_height_in": 36.0,
+      "utilization": 0.5383903792784459,
+      "score": 6336.095386137343,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 36.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 48.2,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        3,
+        1
+      ],
+      "used_area_in2": 2232.0,
+      "used_width_in": 78.2,
+      "used_height_in": 30.0,
+      "utilization": 0.5161887141535615,
+      "score": 6119.293791151984,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 18.2,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 38.2,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 58.2,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        0,
+        5
+      ],
+      "used_area_in2": 2160.0,
+      "used_width_in": 90.0,
+      "used_height_in": 24.0,
+      "utilization": 0.49953746530989823,
+      "score": 6001.374653098982,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        0,
+        3
+      ],
+      "used_area_in2": 2160.0,
+      "used_width_in": 90.0,
+      "used_height_in": 24.0,
+      "utilization": 0.49953746530989823,
+      "score": 6000.374653098982,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        0,
+        1
+      ],
+      "used_area_in2": 2160.0,
+      "used_width_in": 90.0,
+      "used_height_in": 24.0,
+      "utilization": 0.49953746530989823,
+      "score": 5999.374653098982,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 72.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        2,
+        2
+      ],
+      "used_area_in2": 2064.0,
+      "used_width_in": 54.2,
+      "used_height_in": 40.2,
+      "utilization": 0.47733580018501387,
+      "score": 5726.6510568702415,
+      "gap_in": 0.2,
+      "method": "guillotine_horizontal",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 20.2,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 30.2,
+          "y_in": 20.2,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        2,
+        0
+      ],
+      "used_area_in2": 2064.0,
+      "used_width_in": 76.2,
+      "used_height_in": 30.0,
+      "utilization": 0.47733580018501387,
+      "score": 5681.245140957751,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 20.0,
+          "y_in": 0.0,
+          "width_in": 20.0,
+          "height_in": 30.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 40.2,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        1,
+        3
+      ],
+      "used_area_in2": 1896.0,
+      "used_width_in": 84.2,
+      "used_height_in": 24.0,
+      "utilization": 0.43848288621646625,
+      "score": 5329.0711424496985,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 54.2,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        1,
+        1
+      ],
+      "used_area_in2": 1896.0,
+      "used_width_in": 84.2,
+      "used_height_in": 24.0,
+      "utilization": 0.43848288621646625,
+      "score": 5328.0711424496985,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 66.2,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        3,
+        0
+      ],
+      "used_area_in2": 1800.0,
+      "used_width_in": 90.0,
+      "used_height_in": 20.0,
+      "utilization": 0.4162812210915819,
+      "score": 5166.8122109158185,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 60.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        0,
+        4
+      ],
+      "used_area_in2": 1728.0,
+      "used_width_in": 72.0,
+      "used_height_in": 24.0,
+      "utilization": 0.3996299722479186,
+      "score": 5001.299722479185,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 18.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        0,
+        2
+      ],
+      "used_area_in2": 1728.0,
+      "used_width_in": 72.0,
+      "used_height_in": 24.0,
+      "utilization": 0.3996299722479186,
+      "score": 5000.299722479185,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 54.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        2,
+        0,
+        0
+      ],
+      "used_area_in2": 1728.0,
+      "used_width_in": 72.0,
+      "used_height_in": 24.0,
+      "utilization": 0.3996299722479186,
+      "score": 4999.299722479185,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        2,
+        1
+      ],
+      "used_area_in2": 1632.0,
+      "used_width_in": 84.2,
+      "used_height_in": 20.0,
+      "utilization": 0.3774283071230342,
+      "score": 4748.40421137286,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 24.2,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 54.2,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        1,
+        2
+      ],
+      "used_area_in2": 1464.0,
+      "used_width_in": 78.2,
+      "used_height_in": 20.0,
+      "utilization": 0.3385753931544866,
+      "score": 4326.815312619035,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 48.2,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        1,
+        0
+      ],
+      "used_area_in2": 1464.0,
+      "used_width_in": 66.2,
+      "used_height_in": 24.0,
+      "utilization": 0.3385753931544866,
+      "score": 4311.204082602268,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "36x24",
+          "x_in": 30.2,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        0,
+        3
+      ],
+      "used_area_in2": 1296.0,
+      "used_width_in": 72.0,
+      "used_height_in": 18.0,
+      "utilization": 0.299722479185939,
+      "score": 4001.22479185939,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 48.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        0,
+        1
+      ],
+      "used_area_in2": 1296.0,
+      "used_width_in": 54.0,
+      "used_height_in": 24.0,
+      "utilization": 0.299722479185939,
+      "score": 4000.22479185939,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 36.0,
+          "y_in": 0.0,
+          "width_in": 18.0,
+          "height_in": 24.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        2,
+        0
+      ],
+      "used_area_in2": 1200.0,
+      "used_width_in": 60.0,
+      "used_height_in": 20.0,
+      "utilization": 0.27752081406105455,
+      "score": 3778.2081406105453,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 30.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        1,
+        1
+      ],
+      "used_area_in2": 1032.0,
+      "used_width_in": 54.2,
+      "used_height_in": 20.0,
+      "utilization": 0.23866790009250693,
+      "score": 3342.7085212202724,
+      "gap_in": 0.2,
+      "method": "guillotine_vertical",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "20x30",
+          "x_in": 24.2,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        0,
+        2
+      ],
+      "used_area_in2": 864.0,
+      "used_width_in": 48.0,
+      "used_height_in": 18.0,
+      "utilization": 0.1998149861239593,
+      "score": 3001.1498612395926,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        },
+        {
+          "artwork": "24x18",
+          "x_in": 24.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        1,
+        0,
+        0
+      ],
+      "used_area_in2": 864.0,
+      "used_width_in": 36.0,
+      "used_height_in": 24.0,
+      "utilization": 0.1998149861239593,
+      "score": 3000.1498612395926,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "36x24",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 36.0,
+          "height_in": 24.0,
+          "rotated": false
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        1,
+        0
+      ],
+      "used_area_in2": 600.0,
+      "used_width_in": 30.0,
+      "used_height_in": 20.0,
+      "utilization": 0.13876040703052728,
+      "score": 2389.6040703052727,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "20x30",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 30.0,
+          "height_in": 20.0,
+          "rotated": true
+        }
+      ]
+    },
+    {
+      "counts": [
+        0,
+        0,
+        1
+      ],
+      "used_area_in2": 432.0,
+      "used_width_in": 24.0,
+      "used_height_in": 18.0,
+      "utilization": 0.09990749306197964,
+      "score": 2001.0749306197963,
+      "gap_in": 0.2,
+      "method": "row_grouping",
+      "placements": [
+        {
+          "artwork": "24x18",
+          "x_in": 0.0,
+          "y_in": 0.0,
+          "width_in": 24.0,
+          "height_in": 18.0,
+          "rotated": false
+        }
+      ]
+    }
+  ]
+}
