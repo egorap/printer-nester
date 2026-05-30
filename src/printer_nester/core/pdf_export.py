@@ -15,6 +15,7 @@ from printer_nester.core.markers import MARKER_DIAMETER_MM, MM_PER_INCH
 
 
 MIN_FREE_SPACE_BYTES = 10 * 1024 * 1024
+EXPORT_MARKER_PADDING_IN = 0.5
 
 
 class ExportKind(StrEnum):
@@ -99,6 +100,7 @@ def _ensure_configured_directory(directory: Path, label: str) -> None:
 def _write_local_pdf(sheet: ExportSheet, kind: ExportKind, temp_dir: Path) -> Path:
     _ensure_free_space(temp_dir, MIN_FREE_SPACE_BYTES)
     local_path = temp_dir / f"printer_nester_{kind.value}_{uuid.uuid4().hex}.pdf"
+    sheet = _trim_sheet_to_markers(sheet)
 
     document = fitz.open()
     page = document.new_page(width=sheet.width_points, height=sheet.height_points)
@@ -115,6 +117,69 @@ def _write_local_pdf(sheet: ExportSheet, kind: ExportKind, temp_dir: Path) -> Pa
     document.close()
     _validate_pdf(local_path)
     return local_path
+
+
+def _trim_sheet_to_markers(sheet: ExportSheet) -> ExportSheet:
+    if not sheet.markers:
+        return sheet
+
+    padding_points = EXPORT_MARKER_PADDING_IN * 72
+    marker_bounds = []
+    for marker in sheet.markers:
+        radius = (marker.diameter_mm / MM_PER_INCH) * 72 / 2
+        marker_bounds.append(
+            (
+                marker.center_x - radius - padding_points,
+                marker.center_y - radius - padding_points,
+                marker.center_x + radius + padding_points,
+                marker.center_y + radius + padding_points,
+            )
+        )
+
+    left = max(0.0, min(bounds[0] for bounds in marker_bounds))
+    top = max(0.0, min(bounds[1] for bounds in marker_bounds))
+    right = min(sheet.width_points, max(bounds[2] for bounds in marker_bounds))
+    bottom = min(sheet.height_points, max(bounds[3] for bounds in marker_bounds))
+    if right <= left or bottom <= top:
+        return sheet
+
+    return ExportSheet(
+        sheet_index=sheet.sheet_index,
+        width_points=right - left,
+        height_points=bottom - top,
+        artworks=[
+            ExportArtwork(
+                path=artwork.path,
+                kind=artwork.kind,
+                rect_points=(
+                    artwork.rect_points[0] - left,
+                    artwork.rect_points[1] - top,
+                    artwork.rect_points[2] - left,
+                    artwork.rect_points[3] - top,
+                ),
+                rotation=artwork.rotation,
+                page_index=artwork.page_index,
+            )
+            for artwork in sheet.artworks
+        ],
+        cut_segments=[
+            ExportSegment(
+                segment.x1 - left,
+                segment.y1 - top,
+                segment.x2 - left,
+                segment.y2 - top,
+            )
+            for segment in sheet.cut_segments
+        ],
+        markers=[
+            ExportMarker(
+                center_x=marker.center_x - left,
+                center_y=marker.center_y - top,
+                diameter_mm=marker.diameter_mm,
+            )
+            for marker in sheet.markers
+        ],
+    )
 
 
 def _draw_artwork_layer(page: fitz.Page, artworks: list[ExportArtwork], oc: int) -> None:
@@ -170,18 +235,39 @@ def _draw_marker_layer(page: fitz.Page, markers: list[ExportMarker], oc: int) ->
 
 def _commit_file(local_path: Path, destination: Path) -> Path:
     _ensure_free_space(destination.parent, local_path.stat().st_size + MIN_FREE_SPACE_BYTES)
-    temp_destination = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        shutil.copyfile(local_path, temp_destination)
-        _fsync_file(temp_destination)
-        _validate_pdf(temp_destination)
-        os.replace(temp_destination, destination)
-        _validate_pdf(destination)
+    for _attempt in range(10_000):
+        final_path = _next_available_destination(destination)
+        created_final = False
+        try:
+            with local_path.open("rb") as source, final_path.open("xb") as target:
+                created_final = True
+                shutil.copyfileobj(source, target)
+                target.flush()
+                os.fsync(target.fileno())
+            _validate_pdf(final_path)
+            return final_path
+        except FileExistsError:
+            continue
+        except Exception:
+            if created_final and final_path.exists():
+                final_path.unlink()
+            raise
+
+    raise FileExistsError(f"No available export filename near {destination}")
+
+
+def _next_available_destination(destination: Path) -> Path:
+    if not destination.exists():
         return destination
-    except Exception:
-        if temp_destination.exists():
-            temp_destination.unlink()
-        raise
+
+    stem = destination.stem
+    suffix = destination.suffix
+    for index in range(1, 10_000):
+        candidate = destination.with_name(f"{stem}_{index:03d}{suffix}")
+        if not candidate.exists():
+            return candidate
+
+    raise FileExistsError(f"No available export filename near {destination}")
 
 
 def _ensure_directory_writable(directory: Path) -> None:

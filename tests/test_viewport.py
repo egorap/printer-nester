@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 from pathlib import Path
+from uuid import uuid4
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -21,7 +22,7 @@ from printer_nester.core.cut_paths import CutRect, cut_segments_for_rects
 from printer_nester.core.grid_nest import GridItem, group_grid_placements
 from printer_nester.core.image_import import DEFAULT_IMAGE_DPI, read_image_import_info
 from printer_nester.core.markers import MARKER_DIAMETER_MM, MAX_MARKER_GAP_IN, sheet_marker_layout
-from printer_nester.core.pdf_export import ExportKind, ExportSettings, export_sheet_pdf
+from printer_nester.core.pdf_export import EXPORT_MARKER_PADDING_IN, ExportKind, ExportSettings, export_sheet_pdf
 from printer_nester.core.space_nest import SpaceItem, SpaceRect, fill_space_placements
 from printer_nester.ui.artboard_panel import ArtboardPanel, SheetPanelRow
 from printer_nester.ui.item_panel import ROW_HEIGHT, ItemPanel, ItemRowWidget
@@ -1441,7 +1442,7 @@ def test_item_panel_is_wide_enough_for_item_rows() -> None:
 
 def test_export_sheet_pdf_writes_print_and_cut_layers() -> None:
     QApplication.instance() or QApplication([])
-    output_dir = Path("test_outputs") / "pdf_export"
+    output_dir = Path("test_outputs") / f"pdf_export_{uuid4().hex}"
     print_dir = output_dir / "print"
     cut_dir = output_dir / "cut"
     temp_dir = output_dir / "temp"
@@ -1462,12 +1463,73 @@ def test_export_sheet_pdf_writes_print_and_cut_layers() -> None:
     assert cut_result.path == cut_dir / "sheet_001_cut.pdf"
     with fitz.open(print_result.path) as document:
         assert document.page_count == 1
+        assert document[0].rect.width < sheet.width_points
+        assert document[0].rect.height < sheet.height_points
         layer_names = {layer["name"] for layer in document.get_ocgs().values()}
         assert layer_names == {"Artwork", "Markers"}
     with fitz.open(cut_result.path) as document:
         assert document.page_count == 1
         layer_names = {layer["name"] for layer in document.get_ocgs().values()}
         assert layer_names == {"Cut Lines", "Markers"}
+
+
+def test_export_sheet_pdf_never_overwrites_existing_file() -> None:
+    QApplication.instance() or QApplication([])
+    output_dir = Path("test_outputs") / f"pdf_export_no_overwrite_{uuid4().hex}"
+    print_dir = output_dir / "print"
+    cut_dir = output_dir / "cut"
+    temp_dir = output_dir / "temp"
+    image_path = output_dir / "art.png"
+    print_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
+    existing_path = print_dir / "sheet_001_print.pdf"
+    existing_bytes = b"existing file must stay untouched"
+    existing_path.write_bytes(existing_bytes)
+
+    viewport = PrintViewport()
+    item = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
+    assert item is not None
+    settings = ExportSettings(print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir)
+
+    result = export_sheet_pdf(viewport.export_sheet_data(0), ExportKind.PRINT, settings)
+
+    assert result.path == print_dir / "sheet_001_print_001.pdf"
+    assert existing_path.read_bytes() == existing_bytes
+    with fitz.open(result.path) as document:
+        assert document.page_count == 1
+
+
+def test_export_sheet_pdf_trims_to_half_inch_outside_markers() -> None:
+    QApplication.instance() or QApplication([])
+    output_dir = Path("test_outputs") / f"pdf_export_trim_{uuid4().hex}"
+    print_dir = output_dir / "print"
+    cut_dir = output_dir / "cut"
+    temp_dir = output_dir / "temp"
+    image_path = output_dir / "art.png"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
+
+    viewport = PrintViewport()
+    item = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
+    assert item is not None
+    sheet = viewport.export_sheet_data(0)
+    settings = ExportSettings(print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir)
+
+    result = export_sheet_pdf(sheet, ExportKind.PRINT, settings)
+
+    marker_radius = (MARKER_DIAMETER_MM / 25.4) * 72 / 2
+    trim_padding = EXPORT_MARKER_PADDING_IN * 72
+    marker_left = min(marker.center_x - marker_radius - trim_padding for marker in sheet.markers)
+    marker_top = min(marker.center_y - marker_radius - trim_padding for marker in sheet.markers)
+    marker_right = max(marker.center_x + marker_radius + trim_padding for marker in sheet.markers)
+    marker_bottom = max(marker.center_y + marker_radius + trim_padding for marker in sheet.markers)
+    expected_width = min(sheet.width_points, marker_right) - max(0, marker_left)
+    expected_height = min(sheet.height_points, marker_bottom) - max(0, marker_top)
+
+    with fitz.open(result.path) as document:
+        assert document[0].rect.width == pytest.approx(expected_width)
+        assert document[0].rect.height == pytest.approx(expected_height)
 
 
 def test_viewport_reports_sheet_item_summary() -> None:
