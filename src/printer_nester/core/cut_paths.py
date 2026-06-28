@@ -37,6 +37,10 @@ def cut_segments_for_rects(rects: list[CutRect], tolerance: float = 0.01) -> lis
     return _dedupe_segments(segments, tolerance)
 
 
+def dedupe_cut_segments(segments: list[CutSegment], tolerance: float = 0.01) -> list[CutSegment]:
+    return _dedupe_segments(segments, tolerance)
+
+
 def _dedupe_segments(segments: list[CutSegment], tolerance: float) -> list[CutSegment]:
     unique: list[CutSegment] = []
     seen: set[tuple[int, int, int, int]] = set()

@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from printer_nester.core.artboard import ArtboardSettings
+from printer_nester.core.item_transform import ItemTransform
 from printer_nester.core.pdf_export import ExportSettings
 from printer_nester.ui.preferences import load_export_settings, save_default_artboard, save_export_settings
 
@@ -40,11 +42,15 @@ class ArtboardPanel(QWidget):
     artboard_changed = Signal(object)
     export_all_requested = Signal()
     export_sheet_requested = Signal(int, str)
+    item_transform_changed = Signal(object, object)
 
     def __init__(self, artboard: ArtboardSettings) -> None:
         super().__init__()
 
         self._updating = False
+        self._updating_transform = False
+        self._selected_transform_item = None
+        self._transform_aspect_ratio = 1.0
         self._sheet_list_layout: QVBoxLayout | None = None
         self.setMinimumWidth(360)
         self.setMaximumWidth(520)
@@ -73,6 +79,7 @@ class ArtboardPanel(QWidget):
         layout.addWidget(title)
         layout.addLayout(form)
         layout.addWidget(save_button)
+        layout.addWidget(self._build_transform_section())
         layout.addWidget(self._build_export_settings_section())
         layout.addSpacing(8)
         layout.addWidget(self._build_sheet_export_section(), 1)
@@ -109,6 +116,151 @@ class ArtboardPanel(QWidget):
         for row in rows:
             self._sheet_list_layout.addWidget(self._build_sheet_row(row))
         self._sheet_list_layout.addStretch(1)
+
+    def selected_transform_item(self):  # type: ignore[no-untyped-def]
+        return self._selected_transform_item
+
+    def set_selected_item_transform(self, item, transform: ItemTransform | None) -> None:  # type: ignore[no-untyped-def]
+        self._selected_transform_item = item
+        self._updating_transform = True
+        enabled = item is not None and transform is not None
+        self._set_transform_controls_enabled(enabled)
+
+        if transform is None:
+            self._transform_x_input.setValue(0)
+            self._transform_y_input.setValue(0)
+            self._transform_width_input.setValue(0.001)
+            self._transform_height_input.setValue(0.001)
+            self._transform_rotation_input.setValue(0)
+        else:
+            self._transform_aspect_ratio = transform.width_in / transform.height_in if transform.height_in > 0 else 1.0
+            self._transform_x_input.setValue(transform.x_in)
+            self._transform_y_input.setValue(transform.y_in)
+            self._transform_width_input.setValue(transform.width_in)
+            self._transform_height_input.setValue(transform.height_in)
+            self._transform_rotation_input.setValue(transform.rotation_deg)
+
+        self._updating_transform = False
+
+    def transform_values(self) -> ItemTransform:
+        return ItemTransform(
+            x_in=self._transform_x_input.value(),
+            y_in=self._transform_y_input.value(),
+            width_in=self._transform_width_input.value(),
+            height_in=self._transform_height_input.value(),
+            rotation_deg=self._transform_rotation_input.value(),
+        )
+
+    def _build_transform_section(self) -> QWidget:
+        section = QFrame()
+        section.setObjectName("transformSection")
+        section.setStyleSheet(
+            """
+            QFrame#transformSection {
+                border-top: 1px solid #d3d8de;
+                padding-top: 8px;
+            }
+            QLabel#sectionTitle {
+                color: #202428;
+                font-weight: 600;
+            }
+            """
+        )
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        title = QLabel("Transform")
+        title.setObjectName("sectionTitle")
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(6)
+
+        self._transform_x_input = self._make_transform_spinbox(-100_000, 100_000, 0, 0.125, " in")
+        self._transform_y_input = self._make_transform_spinbox(-100_000, 100_000, 0, 0.125, " in")
+        self._transform_width_input = self._make_transform_spinbox(0.001, 100_000, 1, 0.125, " in")
+        self._transform_height_input = self._make_transform_spinbox(0.001, 100_000, 1, 0.125, " in")
+        self._transform_rotation_input = self._make_transform_spinbox(-3600, 3600, 0, 1, " deg")
+        self._transform_lock_input = QCheckBox("Lock proportions")
+        self._transform_lock_input.setChecked(True)
+        self._transform_lock_input.toggled.connect(self._handle_transform_lock_toggled)
+
+        grid.addWidget(QLabel("X"), 0, 0)
+        grid.addWidget(self._transform_x_input, 0, 1)
+        grid.addWidget(QLabel("Y"), 0, 2)
+        grid.addWidget(self._transform_y_input, 0, 3)
+        grid.addWidget(QLabel("W"), 1, 0)
+        grid.addWidget(self._transform_width_input, 1, 1)
+        grid.addWidget(QLabel("H"), 1, 2)
+        grid.addWidget(self._transform_height_input, 1, 3)
+        grid.addWidget(QLabel("Rotation"), 2, 0)
+        grid.addWidget(self._transform_rotation_input, 2, 1, 1, 3)
+        grid.addWidget(self._transform_lock_input, 3, 0, 1, 4)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
+
+        self._transform_x_input.valueChanged.connect(self._emit_item_transform_changed)
+        self._transform_y_input.valueChanged.connect(self._emit_item_transform_changed)
+        self._transform_width_input.valueChanged.connect(self._handle_transform_width_changed)
+        self._transform_height_input.valueChanged.connect(self._handle_transform_height_changed)
+        self._transform_rotation_input.valueChanged.connect(self._emit_item_transform_changed)
+
+        layout.addWidget(title)
+        layout.addLayout(grid)
+        self._set_transform_controls_enabled(False)
+        return section
+
+    def _make_transform_spinbox(self, minimum: float, maximum: float, value: float, step: float, suffix: str) -> QDoubleSpinBox:
+        spinbox = QDoubleSpinBox()
+        spinbox.setRange(minimum, maximum)
+        spinbox.setDecimals(2)
+        spinbox.setSingleStep(step)
+        spinbox.setSuffix(suffix)
+        spinbox.setKeyboardTracking(False)
+        spinbox.setValue(value)
+        return spinbox
+
+    def _transform_spinboxes(self) -> tuple[QDoubleSpinBox, QDoubleSpinBox, QDoubleSpinBox, QDoubleSpinBox, QDoubleSpinBox]:
+        return (
+            self._transform_x_input,
+            self._transform_y_input,
+            self._transform_width_input,
+            self._transform_height_input,
+            self._transform_rotation_input,
+        )
+
+    def _set_transform_controls_enabled(self, enabled: bool) -> None:
+        for spinbox in self._transform_spinboxes():
+            spinbox.setEnabled(enabled)
+        self._transform_lock_input.setEnabled(enabled)
+
+    def _handle_transform_lock_toggled(self, checked: bool) -> None:
+        if checked:
+            height = self._transform_height_input.value()
+            self._transform_aspect_ratio = self._transform_width_input.value() / height if height > 0 else 1.0
+
+    def _handle_transform_width_changed(self, value: float) -> None:
+        if not self._updating_transform and self._transform_lock_input.isChecked() and self._transform_aspect_ratio > 0:
+            self._updating_transform = True
+            self._transform_height_input.setValue(max(0.001, value / self._transform_aspect_ratio))
+            self._updating_transform = False
+        self._emit_item_transform_changed()
+
+    def _handle_transform_height_changed(self, value: float) -> None:
+        if not self._updating_transform and self._transform_lock_input.isChecked() and self._transform_aspect_ratio > 0:
+            self._updating_transform = True
+            self._transform_width_input.setValue(max(0.001, value * self._transform_aspect_ratio))
+            self._updating_transform = False
+        self._emit_item_transform_changed()
+
+    def _emit_item_transform_changed(self) -> None:
+        if self._updating_transform or self._selected_transform_item is None:
+            return
+        if not self._transform_lock_input.isChecked():
+            height = self._transform_height_input.value()
+            self._transform_aspect_ratio = self._transform_width_input.value() / height if height > 0 else 1.0
+        self.item_transform_changed.emit(self._selected_transform_item, self.transform_values())
 
     def _make_spinbox(self, minimum: float, maximum: float, value: float) -> QDoubleSpinBox:
         spinbox = QDoubleSpinBox()

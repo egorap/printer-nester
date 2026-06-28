@@ -20,12 +20,23 @@ from PySide6.QtGui import (
     QTransform,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
+from PySide6.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsLineItem,
+    QGraphicsPixmapItem,
+    QGraphicsRectItem,
+    QGraphicsScene,
+    QGraphicsView,
+)
 from PySide6.QtWidgets import QGraphicsEllipseItem
 from PySide6.QtWidgets import QApplication, QProgressDialog
 
 from printer_nester.core.artboard import DEFAULT_ARTBOARD, ArtboardSettings
-from printer_nester.core.artwork_import import SUPPORTED_ARTWORK_EXTENSIONS, ArtworkKind, read_artwork_import_info
+from printer_nester.core.artwork_import import (
+    SUPPORTED_ARTWORK_EXTENSIONS,
+    ArtworkKind,
+    read_artwork_import_info,
+)
 from printer_nester.core.auto_nest import (
     PREDEFINED_SAFE_AREA_HEIGHT_IN,
     PREDEFINED_SAFE_AREA_WIDTH_IN,
@@ -33,10 +44,25 @@ from printer_nester.core.auto_nest import (
     classify_preset_size,
     load_layout_catalog,
 )
-from printer_nester.core.cut_paths import CutRect, cut_segments_for_rects
+from printer_nester.core.cut_paths import (
+    CutRect,
+    CutSegment,
+    cut_segments_for_rects,
+    dedupe_cut_segments,
+)
 from printer_nester.core.grid_nest import GridItem, group_grid_placements
-from printer_nester.core.markers import MARKER_DIAMETER_MM, MM_PER_INCH, sheet_marker_layout
-from printer_nester.core.pdf_export import ExportArtwork, ExportMarker, ExportSegment, ExportSheet
+from printer_nester.core.item_transform import ItemTransform
+from printer_nester.core.markers import (
+    MARKER_DIAMETER_MM,
+    MM_PER_INCH,
+    sheet_marker_layout,
+)
+from printer_nester.core.pdf_export import (
+    ExportArtwork,
+    ExportMarker,
+    ExportSegment,
+    ExportSheet,
+)
 from printer_nester.core.space_nest import SpaceItem, SpaceRect, fill_space_placements
 from printer_nester.ui.qt_settings import configure_qt_image_limits
 
@@ -51,6 +77,7 @@ AUTO_NEST_SHEET_COLUMNS = 3
 ITEM_MARKER_GAP_IN = 0.5
 MIN_VIEWPORT_ZOOM = 0.01
 MAX_VIEWPORT_ZOOM = 8.0
+ITEM_ROTATION_DATA_KEY = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,8 +106,14 @@ class PrintViewport(QGraphicsView):
     sheet_layout_changed = Signal()
     image_added = Signal(object, str)
     image_removed = Signal(object)
+    image_selection_changed = Signal(object)
+    image_transform_changed = Signal(object)
 
-    def __init__(self, sheet: SheetPreset = DEFAULT_SHEET, margin_in: float = DEFAULT_ARTBOARD.margin_in) -> None:
+    def __init__(
+        self,
+        sheet: SheetPreset = DEFAULT_SHEET,
+        margin_in: float = DEFAULT_ARTBOARD.margin_in,
+    ) -> None:
         super().__init__()
 
         self._sheet = sheet
@@ -101,7 +134,9 @@ class PrintViewport(QGraphicsView):
         self.setScene(self._scene)
 
         shadow_offset = 12
-        self._sheet_shadow = QGraphicsRectItem(sheet.rect_points.translated(shadow_offset, shadow_offset))
+        self._sheet_shadow = QGraphicsRectItem(
+            sheet.rect_points.translated(shadow_offset, shadow_offset)
+        )
         self._sheet_shadow.setBrush(QColor(0, 0, 0, 38))
         self._sheet_shadow.setPen(Qt.PenStyle.NoPen)
         self._sheet_shadow.setZValue(-20)
@@ -121,7 +156,9 @@ class PrintViewport(QGraphicsView):
         self._margin_item.setZValue(-5)
         self._margin_item.setVisible(not self._margin_rect().isEmpty())
         self._scene.addItem(self._margin_item)
-        self._extra_sheet_items: list[tuple[QGraphicsRectItem, QGraphicsRectItem, QGraphicsRectItem]] = []
+        self._extra_sheet_items: list[
+            tuple[QGraphicsRectItem, QGraphicsRectItem, QGraphicsRectItem]
+        ] = []
         self._marker_items: list[QGraphicsEllipseItem] = []
         self._cut_path_items: list[QGraphicsLineItem] = []
         self._selection_highlight_items: list[QGraphicsRectItem] = []
@@ -129,10 +166,20 @@ class PrintViewport(QGraphicsView):
         self._ready_highlight_items: list[QGraphicsRectItem] = []
         self._refresh_sheet_markers()
 
-        self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing | QPainter.RenderHint.SmoothPixmapTransform)
-        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate)
-        self.setOptimizationFlag(QGraphicsView.OptimizationFlag.DontSavePainterState, True)
-        self.setOptimizationFlag(QGraphicsView.OptimizationFlag.DontAdjustForAntialiasing, True)
+        self.setRenderHints(
+            QPainter.RenderHint.Antialiasing
+            | QPainter.RenderHint.TextAntialiasing
+            | QPainter.RenderHint.SmoothPixmapTransform
+        )
+        self.setViewportUpdateMode(
+            QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate
+        )
+        self.setOptimizationFlag(
+            QGraphicsView.OptimizationFlag.DontSavePainterState, True
+        )
+        self.setOptimizationFlag(
+            QGraphicsView.OptimizationFlag.DontAdjustForAntialiasing, True
+        )
         self.setCacheMode(QGraphicsView.CacheModeFlag.CacheNone)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
@@ -143,11 +190,19 @@ class PrintViewport(QGraphicsView):
         self.setAcceptDrops(True)
         self.viewport().setAcceptDrops(True)
         self._scene.selectionChanged.connect(self.refresh_selection_highlights)
-        self.horizontalScrollBar().valueChanged.connect(lambda _value: self.viewport_changed.emit())
-        self.verticalScrollBar().valueChanged.connect(lambda _value: self.viewport_changed.emit())
+        self._scene.selectionChanged.connect(self._emit_image_selection_changed)
+        self.horizontalScrollBar().valueChanged.connect(
+            lambda _value: self.viewport_changed.emit()
+        )
+        self.verticalScrollBar().valueChanged.connect(
+            lambda _value: self.viewport_changed.emit()
+        )
 
     def fit_sheet(self) -> None:
-        self.fitInView(self._sheet.rect_points.adjusted(-48, -48, 48, 48), Qt.AspectRatioMode.KeepAspectRatio)
+        self.fitInView(
+            self._sheet.rect_points.adjusted(-48, -48, 48, 48),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
         self._zoom = self.transform().m11()
         self._emit_zoom()
         self.viewport_changed.emit()
@@ -178,11 +233,15 @@ class PrintViewport(QGraphicsView):
         height = max(1.0, artboard.height_in)
         margin = max(0.0, min(artboard.margin_in, min(width, height) / 2))
 
-        self._sheet = SheetPreset(name=f"{width:g} x {height:g} in", width_in=width, height_in=height)
+        self._sheet = SheetPreset(
+            name=f"{width:g} x {height:g} in", width_in=width, height_in=height
+        )
         self._margin_in = margin
 
         shadow_offset = 12
-        self._sheet_shadow.setRect(self._sheet.rect_points.translated(shadow_offset, shadow_offset))
+        self._sheet_shadow.setRect(
+            self._sheet.rect_points.translated(shadow_offset, shadow_offset)
+        )
         self._sheet_item.setRect(self._sheet.rect_points)
         margin_rect = self._margin_rect()
         self._margin_item.setRect(margin_rect)
@@ -198,10 +257,14 @@ class PrintViewport(QGraphicsView):
         self.refresh_ready_highlights()
         self.sheet_layout_changed.emit()
 
-    def add_image_file(self, path: Path, scene_position: QPointF) -> QGraphicsPixmapItem | None:
+    def add_image_file(
+        self, path: Path, scene_position: QPointF
+    ) -> QGraphicsPixmapItem | None:
         return self.add_artwork_file(path, scene_position)
 
-    def add_artwork_file(self, path: Path, scene_position: QPointF) -> QGraphicsPixmapItem | None:
+    def add_artwork_file(
+        self, path: Path, scene_position: QPointF
+    ) -> QGraphicsPixmapItem | None:
         configure_qt_image_limits()
 
         try:
@@ -274,7 +337,11 @@ class PrintViewport(QGraphicsView):
                 touched.append(item)
 
         if toggle:
-            base_selection = initial_selection if initial_selection is not None else set(self._selected_image_items())
+            base_selection = (
+                initial_selection
+                if initial_selection is not None
+                else set(self._selected_image_items())
+            )
             touched_set = set(touched)
             for item in self._image_items():
                 item.setSelected((item in base_selection) ^ (item in touched_set))
@@ -314,6 +381,162 @@ class PrintViewport(QGraphicsView):
                 selected_count += 1
         return selected_count
 
+    def align_selected_items(self, mode: str) -> int:
+        items = self._selected_image_items()
+        if len(items) < 2:
+            return 0
+
+        bounds = _united_item_bounds(
+            [self._item_footprint_rect(item) for item in items]
+        )
+        if bounds is None:
+            return 0
+
+        moved_items: list[QGraphicsPixmapItem] = []
+        for item in items:
+            item_rect = self._item_footprint_rect(item)
+            delta = QPointF(0, 0)
+            if mode == "left":
+                delta.setX(bounds.left() - item_rect.left())
+            elif mode == "center_x":
+                delta.setX(bounds.center().x() - item_rect.center().x())
+            elif mode == "right":
+                delta.setX(bounds.right() - item_rect.right())
+            elif mode == "top":
+                delta.setY(bounds.top() - item_rect.top())
+            elif mode == "center_y":
+                delta.setY(bounds.center().y() - item_rect.center().y())
+            elif mode == "bottom":
+                delta.setY(bounds.bottom() - item_rect.bottom())
+            else:
+                return 0
+
+            if _is_meaningful_delta(delta):
+                item.setPos(item.pos() + delta)
+                moved_items.append(item)
+
+        self._refresh_after_items_moved(moved_items)
+        return len(moved_items)
+
+    def close_selected_item_gaps(self, axis: str) -> int:
+        items = self._selected_image_items()
+        if len(items) < 2:
+            return 0
+
+        if axis == "horizontal":
+            sorted_items = sorted(
+                items,
+                key=lambda item: (
+                    self._item_footprint_rect(item).left(),
+                    self._item_footprint_rect(item).top(),
+                ),
+            )
+            cursor = self._item_footprint_rect(sorted_items[0]).right()
+            moved_items: list[QGraphicsPixmapItem] = []
+            for item in sorted_items[1:]:
+                item_rect = self._item_footprint_rect(item)
+                delta = QPointF(cursor - item_rect.left(), 0)
+                if _is_meaningful_delta(delta):
+                    item.setPos(item.pos() + delta)
+                    moved_items.append(item)
+                    item_rect = self._item_footprint_rect(item)
+                cursor = item_rect.right()
+        elif axis == "vertical":
+            sorted_items = sorted(
+                items,
+                key=lambda item: (
+                    self._item_footprint_rect(item).top(),
+                    self._item_footprint_rect(item).left(),
+                ),
+            )
+            cursor = self._item_footprint_rect(sorted_items[0]).bottom()
+            moved_items = []
+            for item in sorted_items[1:]:
+                item_rect = self._item_footprint_rect(item)
+                delta = QPointF(0, cursor - item_rect.top())
+                if _is_meaningful_delta(delta):
+                    item.setPos(item.pos() + delta)
+                    moved_items.append(item)
+                    item_rect = self._item_footprint_rect(item)
+                cursor = item_rect.bottom()
+        else:
+            return 0
+
+        self._refresh_after_items_moved(moved_items)
+        return len(moved_items)
+
+    def _emit_image_selection_changed(self) -> None:
+        selected = self._selected_image_items()
+        self.image_selection_changed.emit(selected[0] if selected else None)
+
+    def item_transform(self, item: QGraphicsPixmapItem) -> ItemTransform:
+        item_rect = self._item_logical_rect(item)
+        sheet_index = self._sheet_index_for_item(item)
+        sheet_rect = self._sheet_rect_for_index(
+            sheet_index if sheet_index is not None else 0
+        )
+        return ItemTransform(
+            x_in=(item_rect.left() - sheet_rect.left()) / POINTS_PER_INCH,
+            y_in=(item_rect.top() - sheet_rect.top()) / POINTS_PER_INCH,
+            width_in=item_rect.width() / POINTS_PER_INCH,
+            height_in=item_rect.height() / POINTS_PER_INCH,
+            rotation_deg=_item_rotation(item),
+        )
+
+    def set_item_transform(
+        self, item: QGraphicsPixmapItem, transform: ItemTransform
+    ) -> None:
+        if item is None or item.scene() is not self._scene:
+            return
+
+        sheet_index = self._sheet_index_for_item(item)
+        sheet_index = sheet_index if sheet_index is not None else 0
+        self._ensure_sheet_count(sheet_index + 1)
+        sheet_rect = self._sheet_rect_for_index(sheet_index)
+        width_in = max(0.001, transform.width_in)
+        height_in = max(0.001, transform.height_in)
+
+        rotation = transform.rotation_deg
+        if not _apply_item_geometry(item, width_in, height_in, rotation):
+            return
+
+        item.setPos(
+            QPointF(
+                sheet_rect.left() + (transform.x_in + width_in / 2) * POINTS_PER_INCH,
+                sheet_rect.top() + (transform.y_in + height_in / 2) * POINTS_PER_INCH,
+            )
+        )
+        item.setData(3, width_in)
+        item.setData(4, height_in)
+        item.setData(10, width_in)
+        item.setData(11, height_in)
+        self._refresh_after_item_transform(item)
+
+    def _refresh_after_item_transform(self, item: QGraphicsPixmapItem) -> None:
+        self._ensure_trailing_empty_sheet()
+        self.refresh_cut_paths()
+        self.refresh_selection_highlights()
+        self._refresh_sheet_markers()
+        self.refresh_ready_highlights()
+        self.viewport_changed.emit()
+        self.sheet_layout_changed.emit()
+        self.image_transform_changed.emit(item)
+
+    def _refresh_after_items_moved(self, items: list[QGraphicsPixmapItem]) -> None:
+        if not items:
+            return
+
+        self._ensure_trailing_empty_sheet()
+        self.refresh_cut_paths()
+        self.refresh_selection_highlights()
+        self._refresh_sheet_markers()
+        self.refresh_ready_highlights()
+        self.viewport_changed.emit()
+        self.sheet_layout_changed.emit()
+        for item in items:
+            if item.scene() is self._scene:
+                self.image_transform_changed.emit(item)
+
     def set_item_rounding(self, item: QGraphicsPixmapItem, enabled: bool) -> None:
         original_width = float(item.data(7) or item.data(3) or 0)
         original_height = float(item.data(8) or item.data(4) or 0)
@@ -327,15 +550,9 @@ class PrintViewport(QGraphicsView):
             width_in = original_width
             height_in = original_height
 
-        pixmap = item.pixmap()
-        if pixmap.isNull():
+        if not _apply_item_geometry(item, width_in, height_in, _item_rotation(item)):
             return
 
-        width_points = width_in * POINTS_PER_INCH
-        height_points = height_in * POINTS_PER_INCH
-        item.setTransform(QTransform.fromScale(width_points / pixmap.width(), height_points / pixmap.height()))
-        item.setData(3, width_in)
-        item.setData(4, height_in)
         item.setData(9, enabled)
         item.setData(10, width_in)
         item.setData(11, height_in)
@@ -344,8 +561,11 @@ class PrintViewport(QGraphicsView):
         self._refresh_sheet_markers()
         self.refresh_ready_highlights()
         self.sheet_layout_changed.emit()
+        self.image_transform_changed.emit(item)
 
-    def auto_nest_predefined(self, layout_path: Path = AUTO_NEST_LAYOUT_PATH) -> tuple[int, int]:
+    def auto_nest_predefined(
+        self, layout_path: Path = AUTO_NEST_LAYOUT_PATH
+    ) -> tuple[int, int]:
         if not layout_path.exists():
             return 0, 0
 
@@ -353,13 +573,17 @@ class PrintViewport(QGraphicsView):
         target_items = self._nest_target_items()
         matching_items, unmatched_count = self._matching_preset_items(target_items)
         placeable_items = {item for items in matching_items.values() for item in items}
-        available_counts = {artwork: len(items) for artwork, items in matching_items.items()}
+        available_counts = {
+            artwork: len(items) for artwork, items in matching_items.items()
+        }
         chosen_layouts = choose_layouts_for_counts(available_counts, catalog)
         if not chosen_layouts:
             return 0, unmatched_count
 
         self._ensure_predefined_sheet_size()
-        sheet_indices = self._empty_sheet_indices(len(chosen_layouts), excluded_items=placeable_items)
+        sheet_indices = self._empty_sheet_indices(
+            len(chosen_layouts), excluded_items=placeable_items
+        )
         pools = {artwork: list(items) for artwork, items in matching_items.items()}
         placed = 0
 
@@ -469,7 +693,9 @@ class PrintViewport(QGraphicsView):
         if not placements:
             return 0
 
-        self._ensure_sheet_count(max(placement.sheet_index for placement in placements) + 1)
+        self._ensure_sheet_count(
+            max(placement.sheet_index for placement in placements) + 1
+        )
         for placement in placements:
             item = item_by_key.get(placement.key)
             if item is None:
@@ -493,12 +719,41 @@ class PrintViewport(QGraphicsView):
         return len(placements)
 
     def cut_segments(self):
-        rects: list[CutRect] = []
-        for item in self._image_items():
-            bounds = self._item_logical_rect(item)
-            rects.append(CutRect(bounds.left(), bounds.top(), bounds.right(), bounds.bottom()))
+        return self._cut_segments_for_items(self._image_items())
 
-        return cut_segments_for_rects(rects)
+    def _cut_segments_for_items(
+        self, items: list[QGraphicsPixmapItem]
+    ) -> list[CutSegment]:
+        rects: list[CutRect] = []
+        segments: list[CutSegment] = []
+        for item in items:
+            if _is_orthogonal_rotation(_item_rotation(item)):
+                bounds = self._item_footprint_rect(item)
+                rects.append(
+                    CutRect(
+                        bounds.left(), bounds.top(), bounds.right(), bounds.bottom()
+                    )
+                )
+            else:
+                segments.extend(self._item_polygon_cut_segments(item))
+
+        return dedupe_cut_segments([*cut_segments_for_rects(rects), *segments])
+
+    def _item_polygon_cut_segments(self, item: QGraphicsPixmapItem) -> list[CutSegment]:
+        polygon = item.mapToScene(_item_local_pixmap_rect(item))
+        if polygon.count() < 4:
+            return []
+
+        points = [polygon.at(index) for index in range(4)]
+        return [
+            CutSegment(
+                points[index].x(),
+                points[index].y(),
+                points[(index + 1) % 4].x(),
+                points[(index + 1) % 4].y(),
+            )
+            for index in range(4)
+        ]
 
     def exportable_sheet_indices(self) -> list[int]:
         return sorted(self._occupied_sheet_indices())
@@ -511,9 +766,11 @@ class PrintViewport(QGraphicsView):
             items = [
                 item
                 for item in self._image_items()
-                if _rects_overlap_with_area(self._item_logical_rect(item), sheet_rect)
+                if _rects_overlap_with_area(self._item_footprint_rect(item), sheet_rect)
             ]
-            rows.append((sheet_index, len(items), all(item in ready_items for item in items)))
+            rows.append(
+                (sheet_index, len(items), all(item in ready_items for item in items))
+            )
 
         return rows
 
@@ -537,28 +794,40 @@ class PrintViewport(QGraphicsView):
         sheet_rect = self._sheet_rect_for_index(sheet_index)
         sheet_top_left = sheet_rect.topLeft()
         artworks: list[ExportArtwork] = []
-        cut_rects: list[CutRect] = []
+        sheet_items: list[QGraphicsPixmapItem] = []
 
         for item in self._image_items():
-            item_rect = self._item_logical_rect(item)
+            item_rect = self._item_cut_bounds(item)
             if not _rects_overlap_with_area(item_rect, sheet_rect):
                 continue
 
-            local_rect = item_rect.translated(QPointF(-sheet_top_left.x(), -sheet_top_left.y()))
+            sheet_items.append(item)
+            local_rect = item_rect.translated(
+                QPointF(-sheet_top_left.x(), -sheet_top_left.y())
+            )
             artworks.append(
                 ExportArtwork(
                     path=Path(str(item.data(0))),
                     kind=ArtworkKind(str(item.data(5) or ArtworkKind.RASTER.value)),
-                    rect_points=(local_rect.left(), local_rect.top(), local_rect.right(), local_rect.bottom()),
-                    rotation=int(item.rotation()) % 360,
+                    rect_points=(
+                        local_rect.left(),
+                        local_rect.top(),
+                        local_rect.right(),
+                        local_rect.bottom(),
+                    ),
+                    rotation=int(_item_rotation(item)) % 360,
                     page_index=int(item.data(6) or 0),
                 )
             )
-            cut_rects.append(CutRect(local_rect.left(), local_rect.top(), local_rect.right(), local_rect.bottom()))
 
         cut_segments = [
-            ExportSegment(segment.x1, segment.y1, segment.x2, segment.y2)
-            for segment in cut_segments_for_rects(cut_rects)
+            ExportSegment(
+                segment.x1 - sheet_top_left.x(),
+                segment.y1 - sheet_top_left.y(),
+                segment.x2 - sheet_top_left.x(),
+                segment.y2 - sheet_top_left.y(),
+            )
+            for segment in self._cut_segments_for_items(sheet_items)
         ]
         markers = [
             ExportMarker(
@@ -637,22 +906,36 @@ class PrintViewport(QGraphicsView):
         for item in self.print_ready_items():
             if item in intersecting_items:
                 continue
-            self._add_ready_highlight(item.sceneBoundingRect(), pen, QColor(0, 166, 81, 42))
+            self._add_ready_highlight(
+                item.sceneBoundingRect(), pen, QColor(0, 166, 81, 42)
+            )
 
         red_pen = QPen(QColor("#dc2626"), 3, Qt.PenStyle.SolidLine)
         red_pen.setCosmetic(True)
         for item in intersecting_items:
-            self._add_ready_highlight(item.sceneBoundingRect(), red_pen, QColor(220, 38, 38, 46))
+            self._add_ready_highlight(
+                item.sceneBoundingRect(), red_pen, QColor(220, 38, 38, 46)
+            )
 
     def intersecting_image_items(self) -> list[QGraphicsPixmapItem]:
-        image_items = [item for item in self._image_items() if not self._item_logical_rect(item).isEmpty()]
+        image_items = [
+            item
+            for item in self._image_items()
+            if not self._item_footprint_rect(item).isEmpty()
+        ]
         intersecting: list[QGraphicsPixmapItem] = []
         for index, item in enumerate(image_items):
-            bounds = self._item_logical_rect(item)
-            if any(_rects_overlap_with_area(bounds, self._item_logical_rect(other)) for other in image_items[index + 1 :]):
+            bounds = self._item_footprint_rect(item)
+            if any(
+                _rects_overlap_with_area(bounds, self._item_footprint_rect(other))
+                for other in image_items[index + 1 :]
+            ):
                 intersecting.append(item)
                 continue
-            if any(_rects_overlap_with_area(bounds, self._item_logical_rect(other)) for other in image_items[:index]):
+            if any(
+                _rects_overlap_with_area(bounds, self._item_footprint_rect(other))
+                for other in image_items[:index]
+            ):
                 intersecting.append(item)
 
         return intersecting
@@ -660,7 +943,10 @@ class PrintViewport(QGraphicsView):
     def _ensure_predefined_sheet_size(self) -> None:
         required_width = PREDEFINED_SAFE_AREA_WIDTH_IN + self._margin_in * 2
         required_height = PREDEFINED_SAFE_AREA_HEIGHT_IN + self._margin_in * 2
-        if self._sheet.width_in >= required_width and self._sheet.height_in >= required_height:
+        if (
+            self._sheet.width_in >= required_width
+            and self._sheet.height_in >= required_height
+        ):
             return
 
         self.set_artboard(
@@ -720,14 +1006,18 @@ class PrintViewport(QGraphicsView):
         event.accept()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() in {Qt.MouseButton.MiddleButton, Qt.MouseButton.RightButton} or (
-            event.button() == Qt.MouseButton.LeftButton and self._space_pan_active
-        ):
+        if event.button() in {
+            Qt.MouseButton.MiddleButton,
+            Qt.MouseButton.RightButton,
+        } or (event.button() == Qt.MouseButton.LeftButton and self._space_pan_active):
             self._start_pan(event.position().toPoint())
             event.accept()
             return
 
-        if event.button() == Qt.MouseButton.LeftButton and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        ):
             item = self._image_item_at(event.position().toPoint())
             if item is not None:
                 item.setSelected(not item.isSelected())
@@ -735,7 +1025,10 @@ class PrintViewport(QGraphicsView):
                 event.accept()
                 return
 
-        if event.button() == Qt.MouseButton.LeftButton and self._should_start_area_select(event.position().toPoint()):
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._should_start_area_select(event.position().toPoint())
+        ):
             self._start_area_select(
                 self.mapToScene(event.position().toPoint()),
                 toggle=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier),
@@ -750,8 +1043,12 @@ class PrintViewport(QGraphicsView):
             current = event.position().toPoint()
             delta = current - self._last_pan_point
             self._last_pan_point = current
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - delta.x()
+            )
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - delta.y()
+            )
             event.accept()
             return
 
@@ -785,6 +1082,8 @@ class PrintViewport(QGraphicsView):
         self.refresh_ready_highlights()
         self.viewport_changed.emit()
         self.sheet_layout_changed.emit()
+        for item in self._selected_image_items():
+            self.image_transform_changed.emit(item)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in {Qt.Key.Key_Delete, Qt.Key.Key_Backspace}:
@@ -842,23 +1141,33 @@ class PrintViewport(QGraphicsView):
             self.centerOn(self._sheet.rect_points.center())
         self.viewport_changed.emit()
 
-    def _scale_view(self, factor: float, viewport_anchor: QPointF | None = None) -> None:
+    def _scale_view(
+        self, factor: float, viewport_anchor: QPointF | None = None
+    ) -> None:
         next_zoom = max(MIN_VIEWPORT_ZOOM, min(MAX_VIEWPORT_ZOOM, self._zoom * factor))
         factor = next_zoom / self._zoom
         if factor == 1:
             return
 
-        anchor = viewport_anchor if viewport_anchor is not None else QPointF(
-            self.viewport().width() / 2,
-            self.viewport().height() / 2,
+        anchor = (
+            viewport_anchor
+            if viewport_anchor is not None
+            else QPointF(
+                self.viewport().width() / 2,
+                self.viewport().height() / 2,
+            )
         )
         scene_anchor = self.mapToScene(anchor.toPoint())
 
         self._zoom = next_zoom
         self.scale(factor, factor)
         viewport_delta = self.mapFromScene(scene_anchor) - anchor.toPoint()
-        self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + viewport_delta.x())
-        self.verticalScrollBar().setValue(self.verticalScrollBar().value() + viewport_delta.y())
+        self.horizontalScrollBar().setValue(
+            self.horizontalScrollBar().value() + viewport_delta.x()
+        )
+        self.verticalScrollBar().setValue(
+            self.verticalScrollBar().value() + viewport_delta.y()
+        )
         self._emit_zoom()
         self.viewport_changed.emit()
 
@@ -874,7 +1183,11 @@ class PrintViewport(QGraphicsView):
     def _stop_pan(self) -> None:
         self._is_panning = False
         self._set_fast_view(False)
-        self.setCursor(Qt.CursorShape.OpenHandCursor if self._space_pan_active else Qt.CursorShape.ArrowCursor)
+        self.setCursor(
+            Qt.CursorShape.OpenHandCursor
+            if self._space_pan_active
+            else Qt.CursorShape.ArrowCursor
+        )
 
     def _should_start_area_select(self, viewport_position: QPoint) -> bool:
         return self._image_item_at(viewport_position) is None
@@ -889,11 +1202,15 @@ class PrintViewport(QGraphicsView):
 
         pen = QPen(QColor("#2563eb"), 1.2, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
-        self._area_select_item = QGraphicsRectItem(QRectF(scene_position, scene_position))
+        self._area_select_item = QGraphicsRectItem(
+            QRectF(scene_position, scene_position)
+        )
         self._area_select_item.setBrush(QColor(37, 99, 235, 34))
         self._area_select_item.setPen(pen)
         self._area_select_item.setZValue(1100)
-        self._area_select_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self._area_select_item.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False
+        )
         self._scene.addItem(self._area_select_item)
 
     def _update_area_select(self, scene_position: QPointF) -> None:
@@ -962,7 +1279,9 @@ class PrintViewport(QGraphicsView):
         while x <= rect.right():
             y = first_y
             while y <= rect.bottom():
-                is_foot_mark = self._is_scene_multiple(x, 12 * POINTS_PER_INCH) and self._is_scene_multiple(
+                is_foot_mark = self._is_scene_multiple(
+                    x, 12 * POINTS_PER_INCH
+                ) and self._is_scene_multiple(
                     y,
                     12 * POINTS_PER_INCH,
                 )
@@ -982,8 +1301,14 @@ class PrintViewport(QGraphicsView):
             return
 
         pixels_per_inch = max(1.0, self.transform().m11() * POINTS_PER_INCH)
-        minor_step = self._inch_step_for_min_pixels(pixels_per_inch, minimum_pixels=12) * POINTS_PER_INCH
-        major_step = self._inch_step_for_min_pixels(pixels_per_inch, minimum_pixels=48) * POINTS_PER_INCH
+        minor_step = (
+            self._inch_step_for_min_pixels(pixels_per_inch, minimum_pixels=12)
+            * POINTS_PER_INCH
+        )
+        major_step = (
+            self._inch_step_for_min_pixels(pixels_per_inch, minimum_pixels=48)
+            * POINTS_PER_INCH
+        )
 
         minor_pen = QPen(QColor("#edf0f2"), 0)
         major_pen = QPen(QColor("#d7dce0"), 0)
@@ -992,7 +1317,9 @@ class PrintViewport(QGraphicsView):
         if major_step != minor_step:
             self._draw_grid_lines(painter, visible, major_step, major_pen)
 
-    def _draw_grid_lines(self, painter: QPainter, rect: QRectF, step: float, pen: QPen) -> None:
+    def _draw_grid_lines(
+        self, painter: QPainter, rect: QRectF, step: float, pen: QPen
+    ) -> None:
         painter.setPen(pen)
 
         left = int(rect.left() // step) * step
@@ -1015,7 +1342,9 @@ class PrintViewport(QGraphicsView):
         top_left = self.mapFromScene(self._sheet.rect_points.topLeft())
         painter.setPen(QPen(QColor("#5f6368")))
         painter.setFont(QFont("Segoe UI", 9))
-        painter.drawText(top_left.x(), top_left.y() - 12, f"Artboard - {self._sheet.name}")
+        painter.drawText(
+            top_left.x(), top_left.y() - 12, f"Artboard - {self._sheet.name}"
+        )
         painter.restore()
 
     def _pasteboard_rect(self) -> QRectF:
@@ -1037,7 +1366,9 @@ class PrintViewport(QGraphicsView):
 
         return float(PASTEBOARD_TEXTURE_STEPS_INCHES[-1])
 
-    def _inch_step_for_min_pixels(self, pixels_per_inch: float, minimum_pixels: float) -> float:
+    def _inch_step_for_min_pixels(
+        self, pixels_per_inch: float, minimum_pixels: float
+    ) -> float:
         for step in GRID_STEPS_INCHES:
             if step * pixels_per_inch >= minimum_pixels:
                 return float(step)
@@ -1050,7 +1381,9 @@ class PrintViewport(QGraphicsView):
     def _round_to_nearest_inch(self, value: float) -> float:
         return max(1.0, float(math.floor(value + 0.5)))
 
-    def _matching_preset_items(self, items: list[QGraphicsPixmapItem] | None = None) -> tuple[dict[str, list[QGraphicsPixmapItem]], int]:
+    def _matching_preset_items(
+        self, items: list[QGraphicsPixmapItem] | None = None
+    ) -> tuple[dict[str, list[QGraphicsPixmapItem]], int]:
         matching: dict[str, list[QGraphicsPixmapItem]] = {}
         unmatched = 0
         for item in items if items is not None else self._image_items():
@@ -1065,7 +1398,11 @@ class PrintViewport(QGraphicsView):
         return matching, unmatched
 
     def _image_items(self) -> list[QGraphicsPixmapItem]:
-        items = [item for item in self._scene.items() if isinstance(item, QGraphicsPixmapItem)]
+        items = [
+            item
+            for item in self._scene.items()
+            if isinstance(item, QGraphicsPixmapItem)
+        ]
         items.sort(key=lambda item: id(item))
         return items
 
@@ -1076,7 +1413,9 @@ class PrintViewport(QGraphicsView):
         selected = self._selected_image_items()
         return selected if selected else self._image_items()
 
-    def _sheet_relative_item_positions(self) -> dict[QGraphicsPixmapItem, tuple[int, float, float]]:
+    def _sheet_relative_item_positions(
+        self,
+    ) -> dict[QGraphicsPixmapItem, tuple[int, float, float]]:
         positions: dict[QGraphicsPixmapItem, tuple[int, float, float]] = {}
         for item in self._image_items():
             for sheet_index in range(self._sheet_count()):
@@ -1089,7 +1428,9 @@ class PrintViewport(QGraphicsView):
 
         return positions
 
-    def _restore_sheet_relative_item_positions(self, positions: dict[QGraphicsPixmapItem, tuple[int, float, float]]) -> None:
+    def _restore_sheet_relative_item_positions(
+        self, positions: dict[QGraphicsPixmapItem, tuple[int, float, float]]
+    ) -> None:
         for item, (sheet_index, x_ratio, y_ratio) in positions.items():
             if item.scene() is not self._scene:
                 continue
@@ -1110,16 +1451,20 @@ class PrintViewport(QGraphicsView):
     def _sheet_count(self) -> int:
         return 1 + len(self._extra_sheet_items)
 
-    def _occupied_sheet_indices(self, excluded_items: set[QGraphicsPixmapItem] | None = None) -> set[int]:
+    def _occupied_sheet_indices(
+        self, excluded_items: set[QGraphicsPixmapItem] | None = None
+    ) -> set[int]:
         excluded_items = excluded_items or set()
         occupied: set[int] = set()
         for item in self._image_items():
             if item in excluded_items:
                 continue
 
-            item_rect = self._item_logical_rect(item)
+            item_rect = self._item_footprint_rect(item)
             for sheet_index in range(self._sheet_count()):
-                if _rects_overlap_with_area(item_rect, self._sheet_rect_for_index(sheet_index)):
+                if _rects_overlap_with_area(
+                    item_rect, self._sheet_rect_for_index(sheet_index)
+                ):
                     occupied.add(sheet_index)
 
         return occupied
@@ -1134,9 +1479,11 @@ class PrintViewport(QGraphicsView):
             if item in excluded_items:
                 continue
 
-            item_rect = self._item_logical_rect(item)
+            item_rect = self._item_footprint_rect(item)
             for sheet_index in range(self._sheet_count()):
-                safe_rect = self._margin_rect_for_sheet_rect(self._sheet_rect_for_index(sheet_index))
+                safe_rect = self._margin_rect_for_sheet_rect(
+                    self._sheet_rect_for_index(sheet_index)
+                )
                 intersection = item_rect.intersected(safe_rect)
                 if intersection.width() <= 0.001 or intersection.height() <= 0.001:
                     continue
@@ -1152,7 +1499,9 @@ class PrintViewport(QGraphicsView):
 
         return occupied_by_sheet
 
-    def _first_empty_sheet_index(self, excluded_items: set[QGraphicsPixmapItem] | None = None) -> int:
+    def _first_empty_sheet_index(
+        self, excluded_items: set[QGraphicsPixmapItem] | None = None
+    ) -> int:
         occupied = self._occupied_sheet_indices(excluded_items=excluded_items)
         for sheet_index in range(self._sheet_count()):
             if sheet_index not in occupied:
@@ -1197,7 +1546,9 @@ class PrintViewport(QGraphicsView):
         self._set_sheet_count(max(occupied) + 2 if occupied else 1)
 
     def _compact_occupied_sheets(self, occupied: set[int]) -> None:
-        sheet_map = {old_index: new_index for new_index, old_index in enumerate(sorted(occupied))}
+        sheet_map = {
+            old_index: new_index for new_index, old_index in enumerate(sorted(occupied))
+        }
         if all(old_index == new_index for old_index, new_index in sheet_map.items()):
             return
 
@@ -1230,14 +1581,22 @@ class PrintViewport(QGraphicsView):
         center = item.pos()
         return QRectF(center.x() - width / 2, center.y() - height / 2, width, height)
 
+    def _item_footprint_rect(self, item: QGraphicsPixmapItem) -> QRectF:
+        return item.mapToScene(_item_local_pixmap_rect(item)).boundingRect()
+
+    def _item_cut_bounds(self, item: QGraphicsPixmapItem) -> QRectF:
+        return self._item_footprint_rect(item)
+
     def _sheet_index_for_item(self, item: QGraphicsPixmapItem) -> int | None:
         for sheet_index in range(self._sheet_count()):
             if self._sheet_rect_for_index(sheet_index).contains(item.pos()):
                 return sheet_index
 
-        item_rect = self._item_logical_rect(item)
+        item_rect = self._item_cut_bounds(item)
         for sheet_index in range(self._sheet_count()):
-            if _rects_overlap_with_area(item_rect, self._sheet_rect_for_index(sheet_index)):
+            if _rects_overlap_with_area(
+                item_rect, self._sheet_rect_for_index(sheet_index)
+            ):
                 return sheet_index
 
         return None
@@ -1253,27 +1612,22 @@ class PrintViewport(QGraphicsView):
     ) -> None:
         source_width = float(item.data(10) or item.data(3) or 0)
         source_height = float(item.data(11) or item.data(4) or 0)
-        needs_rotation = _same_size(source_width, height_in) and _same_size(source_height, width_in)
-        item.setRotation(90 if needs_rotation else 0)
-
-        pixmap = item.pixmap()
-        if not pixmap.isNull():
-            unrotated_width = height_in if needs_rotation else width_in
-            unrotated_height = width_in if needs_rotation else height_in
-            item.setTransform(
-                QTransform.fromScale(
-                    (unrotated_width * POINTS_PER_INCH) / pixmap.width(),
-                    (unrotated_height * POINTS_PER_INCH) / pixmap.height(),
-                )
-            )
+        needs_rotation = _same_size(source_width, height_in) and _same_size(
+            source_height, width_in
+        )
+        rotation = 90 if needs_rotation else 0
+        geometry_width = source_width if source_width > 0 else width_in
+        geometry_height = source_height if source_height > 0 else height_in
+        if not _apply_item_geometry(item, geometry_width, geometry_height, rotation):
+            return
 
         center = QPointF(
             safe_area_top_left.x() + (x_in + width_in / 2) * POINTS_PER_INCH,
             safe_area_top_left.y() + (y_in + height_in / 2) * POINTS_PER_INCH,
         )
         item.setPos(center)
-        item.setData(3, width_in)
-        item.setData(4, height_in)
+        item.setData(3, geometry_width)
+        item.setData(4, geometry_height)
 
     def _ensure_sheet_count(self, count: int) -> None:
         while len(self._extra_sheet_items) < max(0, count - 1):
@@ -1290,7 +1644,9 @@ class PrintViewport(QGraphicsView):
 
         self._ensure_sheet_count(count)
 
-    def _create_extra_sheet(self, sheet_index: int) -> tuple[QGraphicsRectItem, QGraphicsRectItem, QGraphicsRectItem]:
+    def _create_extra_sheet(
+        self, sheet_index: int
+    ) -> tuple[QGraphicsRectItem, QGraphicsRectItem, QGraphicsRectItem]:
         rect = self._sheet_rect_for_index(sheet_index)
         shadow_offset = 12
         shadow = QGraphicsRectItem(rect.translated(shadow_offset, shadow_offset))
@@ -1317,7 +1673,9 @@ class PrintViewport(QGraphicsView):
 
     def _refresh_extra_sheet_rects(self) -> None:
         shadow_offset = 12
-        for index, (shadow, sheet, margin) in enumerate(self._extra_sheet_items, start=1):
+        for index, (shadow, sheet, margin) in enumerate(
+            self._extra_sheet_items, start=1
+        ):
             rect = self._sheet_rect_for_index(index)
             shadow.setRect(rect.translated(shadow_offset, shadow_offset))
             sheet.setRect(rect)
@@ -1328,8 +1686,12 @@ class PrintViewport(QGraphicsView):
     def _sheet_rect_for_index(self, sheet_index: int) -> QRectF:
         column = sheet_index % AUTO_NEST_SHEET_COLUMNS
         row = sheet_index // AUTO_NEST_SHEET_COLUMNS
-        offset_x = column * (self._sheet.width_in + AUTO_NEST_SHEET_GAP_IN) * POINTS_PER_INCH
-        offset_y = row * (self._sheet.height_in + AUTO_NEST_SHEET_GAP_IN) * POINTS_PER_INCH
+        offset_x = (
+            column * (self._sheet.width_in + AUTO_NEST_SHEET_GAP_IN) * POINTS_PER_INCH
+        )
+        offset_y = (
+            row * (self._sheet.height_in + AUTO_NEST_SHEET_GAP_IN) * POINTS_PER_INCH
+        )
         return self._sheet.rect_points.translated(offset_x, offset_y)
 
     def _sheet_safe_area_top_left(self, sheet_index: int) -> QPointF:
@@ -1350,7 +1712,9 @@ class PrintViewport(QGraphicsView):
         rects: list[QRectF] = []
         sheet_count = 1 + len(self._extra_sheet_items)
         for sheet_index in range(sheet_count):
-            margin_rect = self._margin_rect_for_sheet_rect(self._sheet_rect_for_index(sheet_index))
+            margin_rect = self._margin_rect_for_sheet_rect(
+                self._sheet_rect_for_index(sheet_index)
+            )
             if not margin_rect.isEmpty():
                 rects.append(margin_rect)
         return rects
@@ -1437,12 +1801,14 @@ class PrintViewport(QGraphicsView):
         sheet_rect = self._sheet_rect_for_index(sheet_index)
         bounds: QRectF | None = None
         for item in self._image_items():
-            item_rect = self._item_logical_rect(item)
+            item_rect = self._item_cut_bounds(item)
             if not _rects_overlap_with_area(item_rect, sheet_rect):
                 continue
 
             clipped_rect = item_rect.intersected(sheet_rect)
-            bounds = QRectF(clipped_rect) if bounds is None else bounds.united(clipped_rect)
+            bounds = (
+                QRectF(clipped_rect) if bounds is None else bounds.united(clipped_rect)
+            )
 
         return bounds
 
@@ -1461,7 +1827,9 @@ class PrintViewport(QGraphicsView):
             self._scene.removeItem(item)
         self._selection_highlight_items.clear()
 
-    def _import_artwork_batch(self, paths: list[Path], scene_position: QPointF, progress) -> int:  # type: ignore[no-untyped-def]
+    def _import_artwork_batch(
+        self, paths: list[Path], scene_position: QPointF, progress
+    ) -> int:  # type: ignore[no-untyped-def]
         spacing = 24
         added = 0
 
@@ -1517,8 +1885,75 @@ class PrintViewport(QGraphicsView):
         return paths
 
 
+def _item_rotation(item: QGraphicsPixmapItem) -> float:
+    value = item.data(ITEM_ROTATION_DATA_KEY)
+    if value is None:
+        return float(item.rotation())
+    return float(value)
+
+
+def _item_local_pixmap_rect(item: QGraphicsPixmapItem) -> QRectF:
+    pixmap = item.pixmap()
+    offset = item.offset()
+    return QRectF(offset.x(), offset.y(), pixmap.width(), pixmap.height())
+
+
+def _apply_item_geometry(
+    item: QGraphicsPixmapItem, width_in: float, height_in: float, rotation: float
+) -> bool:
+    pixmap = item.pixmap()
+    if pixmap.isNull():
+        return False
+
+    item.setRotation(0)
+    item.setTransform(
+        _item_geometry_transform(
+            pixmap.width(), pixmap.height(), width_in, height_in, rotation
+        )
+    )
+    item.setData(3, width_in)
+    item.setData(4, height_in)
+    item.setData(ITEM_ROTATION_DATA_KEY, rotation)
+    return True
+
+
+def _item_geometry_transform(
+    pixel_width: int,
+    pixel_height: int,
+    width_in: float,
+    height_in: float,
+    rotation: float,
+) -> QTransform:
+    x_scale = (width_in * POINTS_PER_INCH) / max(1, pixel_width)
+    y_scale = (height_in * POINTS_PER_INCH) / max(1, pixel_height)
+    transform = QTransform()
+    transform.rotate(rotation)
+    transform.scale(x_scale, y_scale)
+    return transform
+
+
+def _is_orthogonal_rotation(rotation: float) -> bool:
+    normalized = rotation % 360
+    nearest = round(normalized / 90) * 90
+    return abs(normalized - nearest) <= 0.01
+
+
 def _same_size(first: float, second: float) -> bool:
     return abs(first - second) <= 0.01
+
+
+def _united_item_bounds(rects: list[QRectF]) -> QRectF | None:
+    bounds: QRectF | None = None
+    for rect in rects:
+        if rect.isEmpty():
+            continue
+        bounds = QRectF(rect) if bounds is None else bounds.united(rect)
+
+    return bounds
+
+
+def _is_meaningful_delta(delta: QPointF) -> bool:
+    return abs(delta.x()) > 0.001 or abs(delta.y()) > 0.001
 
 
 def _contains_rect_with_tolerance(container: QRectF, rect: QRectF) -> bool:

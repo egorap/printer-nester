@@ -46,6 +46,7 @@ class ItemPanel(QWidget):
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setSpacing(6)
         self._list.itemClicked.connect(self._handle_item_clicked)
+        self._list.itemSelectionChanged.connect(self._refresh_row_selection_styles)
         self._list.setStyleSheet(
             """
             QListWidget {
@@ -76,12 +77,42 @@ class ItemPanel(QWidget):
         self._list.setItemWidget(list_item, row)
         self._handle_rounding_changed(graphics_item, True)
         row.refresh_dimensions()
+        self._refresh_row_selection_styles()
 
     def remove_image_item(self, graphics_item) -> None:  # type: ignore[no-untyped-def]
         for row in range(self._list.count()):
             list_item = self._list.item(row)
             if list_item.data(Qt.ItemDataRole.UserRole) is graphics_item:
                 self._list.takeItem(row)
+                self._refresh_row_selection_styles()
+                return
+
+    def select_image_item(self, graphics_item) -> None:  # type: ignore[no-untyped-def]
+        if graphics_item is None:
+            self._list.clearSelection()
+            self._list.setCurrentRow(-1)
+            self._refresh_row_selection_styles()
+            return
+
+        for row in range(self._list.count()):
+            list_item = self._list.item(row)
+            if list_item.data(Qt.ItemDataRole.UserRole) is graphics_item:
+                self._list.setCurrentItem(list_item)
+                list_item.setSelected(True)
+                self._list.scrollToItem(list_item, QAbstractItemView.ScrollHint.PositionAtCenter)
+                return
+
+        self._list.clearSelection()
+        self._list.setCurrentRow(-1)
+        self._refresh_row_selection_styles()
+
+    def refresh_image_item(self, graphics_item) -> None:  # type: ignore[no-untyped-def]
+        for row in range(self._list.count()):
+            list_item = self._list.item(row)
+            if list_item.data(Qt.ItemDataRole.UserRole) is graphics_item:
+                widget = self._list.itemWidget(list_item)
+                if isinstance(widget, ItemRowWidget):
+                    widget.refresh_dimensions()
                 return
 
     def _handle_item_clicked(self, item: QListWidgetItem) -> None:
@@ -91,6 +122,17 @@ class ItemPanel(QWidget):
 
     def _handle_rounding_changed(self, graphics_item, enabled: bool) -> None:  # type: ignore[no-untyped-def]
         self.image_rounding_changed.emit(graphics_item, enabled)
+
+    def _refresh_row_selection_styles(self) -> None:
+        for row in range(self._list.count()):
+            list_item = self._list.item(row)
+            widget = self._list.itemWidget(list_item)
+            if widget is None:
+                continue
+            widget.setProperty("selected", list_item.isSelected())
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.update()
 
 
 class ItemRowWidget(QFrame):
@@ -109,6 +151,10 @@ class ItemRowWidget(QFrame):
                 background: #ffffff;
                 border: 1px solid #d4d9df;
                 border-radius: 6px;
+            }
+            QFrame#itemRow[selected="true"] {
+                background: #eaf2ff;
+                border: 2px solid #2563eb;
             }
             QLabel#itemName {
                 color: #202428;

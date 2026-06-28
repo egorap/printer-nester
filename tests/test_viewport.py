@@ -9,7 +9,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QImage, QImageReader, QKeyEvent, QMouseEvent, QWheelEvent
-from PySide6.QtWidgets import QAbstractItemView, QApplication, QCheckBox, QGraphicsItem, QLabel, QPushButton
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QGraphicsItem,
+    QLabel,
+    QPushButton,
+)
 
 import fitz
 from PIL import Image
@@ -20,14 +27,58 @@ from printer_nester.core.artwork_import import ArtworkKind, read_artwork_import_
 from printer_nester.core.auto_nest import classify_preset_size
 from printer_nester.core.cut_paths import CutRect, cut_segments_for_rects
 from printer_nester.core.grid_nest import GridItem, group_grid_placements
+from printer_nester.core.item_transform import ItemTransform
 from printer_nester.core.image_import import DEFAULT_IMAGE_DPI, read_image_import_info
-from printer_nester.core.markers import MARKER_DIAMETER_MM, MAX_MARKER_GAP_IN, sheet_marker_layout
-from printer_nester.core.pdf_export import EXPORT_MARKER_PADDING_IN, ExportKind, ExportSettings, export_sheet_pdf
+from printer_nester.core.markers import (
+    MARKER_DIAMETER_MM,
+    MAX_MARKER_GAP_IN,
+    sheet_marker_layout,
+)
+from printer_nester.core.pdf_export import (
+    EXPORT_MARKER_PADDING_IN,
+    ExportKind,
+    ExportSettings,
+    export_sheet_pdf,
+)
 from printer_nester.core.space_nest import SpaceItem, SpaceRect, fill_space_placements
 from printer_nester.ui.artboard_panel import ArtboardPanel, SheetPanelRow
 from printer_nester.ui.item_panel import ROW_HEIGHT, ItemPanel, ItemRowWidget
-from printer_nester.ui.qt_settings import IMAGE_ALLOCATION_LIMIT_MB, configure_qt_image_limits
+from printer_nester.ui.qt_settings import (
+    IMAGE_ALLOCATION_LIMIT_MB,
+    configure_qt_image_limits,
+)
 from printer_nester.ui.ruler import RulerWidget
+
+
+def _item_polygon_points(item):  # type: ignore[no-untyped-def]
+    pixmap = item.pixmap()
+    rect = QRectF(item.offset().x(), item.offset().y(), pixmap.width(), pixmap.height())
+    polygon = item.mapToScene(rect)
+    return [polygon.at(index) for index in range(4)]
+
+
+def _edge_length_squares(points):  # type: ignore[no-untyped-def]
+    return [
+        (points[(index + 1) % 4].x() - points[index].x()) ** 2
+        + (points[(index + 1) % 4].y() - points[index].y()) ** 2
+        for index in range(4)
+    ]
+
+
+def _corner_dot_products(points):  # type: ignore[no-untyped-def]
+    dots = []
+    for index in range(4):
+        first = points[index]
+        corner = points[(index + 1) % 4]
+        second = points[(index + 2) % 4]
+        first_dx = corner.x() - first.x()
+        first_dy = corner.y() - first.y()
+        second_dx = second.x() - corner.x()
+        second_dy = second.y() - corner.y()
+        dots.append(first_dx * second_dx + first_dy * second_dy)
+    return dots
+
+
 from printer_nester.ui.viewport import (
     AUTO_NEST_SHEET_COLUMNS,
     AUTO_NEST_SHEET_GAP_IN,
@@ -161,7 +212,9 @@ def test_area_select_selects_items_touched_by_rect() -> None:
     assert first is not None
     assert second is not None
 
-    selection_rect = first.sceneBoundingRect().adjusted(-10, -10, -first.sceneBoundingRect().width() + 1, 10)
+    selection_rect = first.sceneBoundingRect().adjusted(
+        -10, -10, -first.sceneBoundingRect().width() + 1, 10
+    )
     selected = viewport.select_items_in_rect(selection_rect)
 
     assert selected == [first]
@@ -184,7 +237,9 @@ def test_shift_area_select_toggles_items_touched_by_rect() -> None:
     first.setSelected(True)
 
     selection_rect = QRectF(-500, -500, 2000, 1000)
-    touched = viewport.select_items_in_rect(selection_rect, toggle=True, initial_selection={first})
+    touched = viewport.select_items_in_rect(
+        selection_rect, toggle=True, initial_selection={first}
+    )
 
     assert touched == [first, second]
     assert not first.isSelected()
@@ -251,7 +306,10 @@ def test_selected_items_have_blue_highlight_above_cut_paths() -> None:
     assert len(viewport._selection_highlight_items) == 1
     assert viewport._selection_highlight_items[0].pen().color().name() == "#2563eb"
     assert viewport._selection_highlight_items[0].brush().color().alpha() > 0
-    assert viewport._selection_highlight_items[0].zValue() > viewport._cut_path_items[0].zValue()
+    assert (
+        viewport._selection_highlight_items[0].zValue()
+        > viewport._cut_path_items[0].zValue()
+    )
 
 
 def test_ctrl_a_selects_all_image_items() -> None:
@@ -267,7 +325,9 @@ def test_ctrl_a_selects_all_image_items() -> None:
     assert first is not None
     assert second is not None
 
-    event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+    event = QKeyEvent(
+        QKeyEvent.Type.KeyPress, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier
+    )
     viewport.keyPressEvent(event)
 
     assert event.isAccepted()
@@ -289,12 +349,96 @@ def test_ctrl_i_inverts_image_selection() -> None:
     assert second is not None
     first.setSelected(True)
 
-    event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_I, Qt.KeyboardModifier.ControlModifier)
+    event = QKeyEvent(
+        QKeyEvent.Type.KeyPress, Qt.Key.Key_I, Qt.KeyboardModifier.ControlModifier
+    )
     viewport.keyPressEvent(event)
 
     assert event.isAccepted()
     assert not first.isSelected()
     assert second.isSelected()
+
+
+def test_align_selected_items_aligns_bounds() -> None:
+    QApplication.instance() or QApplication([])
+    output_dir = Path("test_outputs") / "align_selected"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    image_path = output_dir / "align.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(100, 100))
+
+    viewport = PrintViewport()
+    first = viewport.add_image_file(image_path, QPointF(0, 0))
+    second = viewport.add_image_file(image_path, QPointF(300, 180))
+    assert first is not None
+    assert second is not None
+    first.setSelected(True)
+    second.setSelected(True)
+
+    changed = []
+    viewport.image_transform_changed.connect(changed.append)
+
+    assert viewport.align_selected_items("center_x") == 2
+    assert viewport._item_footprint_rect(first).center().x() == pytest.approx(
+        viewport._item_footprint_rect(second).center().x()
+    )
+
+    second.setPos(QPointF(300, 180))
+    assert viewport.align_selected_items("bottom") == 1
+    assert viewport._item_footprint_rect(first).bottom() == pytest.approx(
+        viewport._item_footprint_rect(second).bottom()
+    )
+    assert changed
+
+
+def test_close_selected_item_gaps_moves_items_together() -> None:
+    QApplication.instance() or QApplication([])
+    output_dir = Path("test_outputs") / "close_gaps"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    image_path = output_dir / "gap.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(100, 100))
+
+    viewport = PrintViewport()
+    first = viewport.add_image_file(image_path, QPointF(0, 0))
+    second = viewport.add_image_file(image_path, QPointF(280, 40))
+    third = viewport.add_image_file(image_path, QPointF(650, 80))
+    assert first is not None
+    assert second is not None
+    assert third is not None
+    for item in (first, second, third):
+        item.setSelected(True)
+
+    original_y = {item: item.pos().y() for item in (first, second, third)}
+
+    assert viewport.close_selected_item_gaps("horizontal") == 2
+    horizontal_items = sorted(
+        (first, second, third),
+        key=lambda item: viewport._item_footprint_rect(item).left(),
+    )
+    assert viewport._item_footprint_rect(horizontal_items[1]).left() == pytest.approx(
+        viewport._item_footprint_rect(horizontal_items[0]).right()
+    )
+    assert viewport._item_footprint_rect(horizontal_items[2]).left() == pytest.approx(
+        viewport._item_footprint_rect(horizontal_items[1]).right()
+    )
+    assert all(
+        item.pos().y() == pytest.approx(original_y[item])
+        for item in (first, second, third)
+    )
+
+    second.setPos(QPointF(100, 280))
+    third.setPos(QPointF(200, 650))
+
+    assert viewport.close_selected_item_gaps("vertical") == 2
+    vertical_items = sorted(
+        (first, second, third),
+        key=lambda item: viewport._item_footprint_rect(item).top(),
+    )
+    assert viewport._item_footprint_rect(vertical_items[1]).top() == pytest.approx(
+        viewport._item_footprint_rect(vertical_items[0]).bottom()
+    )
+    assert viewport._item_footprint_rect(vertical_items[2]).top() == pytest.approx(
+        viewport._item_footprint_rect(vertical_items[1]).bottom()
+    )
 
 
 def test_delete_selected_items_removes_items_and_refreshes_cut_paths() -> None:
@@ -313,7 +457,9 @@ def test_delete_selected_items_removes_items_and_refreshes_cut_paths() -> None:
     removed = []
     viewport.image_removed.connect(removed.append)
 
-    event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+    event = QKeyEvent(
+        QKeyEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier
+    )
     viewport.keyPressEvent(event)
 
     assert event.isAccepted()
@@ -347,6 +493,67 @@ def test_item_panel_emits_graphics_item_when_clicked(tmp_path) -> None:
     assert selected == [item]
 
 
+def test_item_panel_selects_row_for_graphics_item() -> None:
+    QApplication.instance() or QApplication([])
+    output_dir = Path("test_outputs") / "panel_select_row"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    image_path = output_dir / "panel-select.png"
+    image = QImage(20, 10, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.blue)
+    assert image.save(str(image_path))
+
+    viewport = PrintViewport()
+    first = viewport.add_image_file(image_path, QPointF(12, 34))
+    second = viewport.add_image_file(image_path, QPointF(56, 78))
+    assert first is not None
+    assert second is not None
+
+    panel = ItemPanel()
+    panel.add_image_item(first, str(image_path))
+    panel.add_image_item(second, str(image_path))
+
+    panel.select_image_item(second)
+
+    first_row = panel._list.itemWidget(panel._list.item(0))
+    second_row = panel._list.itemWidget(panel._list.item(1))
+
+    assert panel._list.currentItem().data(Qt.ItemDataRole.UserRole) is second
+    assert panel._list.selectedItems() == [panel._list.item(1)]
+    assert first_row.property("selected") is False
+    assert second_row.property("selected") is True
+
+    panel.select_image_item(None)
+
+    assert panel._list.selectedItems() == []
+    assert first_row.property("selected") is False
+    assert second_row.property("selected") is False
+
+
+def test_viewport_selection_selects_matching_item_panel_row() -> None:
+    QApplication.instance() or QApplication([])
+    output_dir = Path("test_outputs") / "viewport_panel_select"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    image_path = output_dir / "viewport-panel-select.png"
+    image = QImage(20, 10, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.blue)
+    assert image.save(str(image_path))
+
+    viewport = PrintViewport()
+    first = viewport.add_image_file(image_path, QPointF(12, 34))
+    second = viewport.add_image_file(image_path, QPointF(56, 78))
+    assert first is not None
+    assert second is not None
+
+    panel = ItemPanel()
+    panel.add_image_item(first, str(image_path))
+    panel.add_image_item(second, str(image_path))
+    viewport.image_selection_changed.connect(panel.select_image_item)
+
+    viewport.select_image_item(second)
+
+    assert panel._list.currentItem().data(Qt.ItemDataRole.UserRole) is second
+
+
 def test_item_panel_removes_deleted_image_row() -> None:
     QApplication.instance() or QApplication([])
     output_dir = Path("test_outputs") / "panel_delete"
@@ -372,7 +579,9 @@ def test_item_panel_uses_pixel_scroll_mode() -> None:
     QApplication.instance() or QApplication([])
     panel = ItemPanel()
 
-    assert panel._list.verticalScrollMode() == QAbstractItemView.ScrollMode.ScrollPerPixel
+    assert (
+        panel._list.verticalScrollMode() == QAbstractItemView.ScrollMode.ScrollPerPixel
+    )
     assert panel._list.verticalScrollBar().singleStep() == 12
 
 
@@ -391,7 +600,9 @@ def test_item_panel_row_displays_dimensions_dpi_and_toggles(tmp_path) -> None:
     assert isinstance(row, ItemRowWidget)
 
     labels = [label.text() for label in row.findChildren(QLabel)]
-    toggles = {toggle.text(): toggle.isChecked() for toggle in row.findChildren(QCheckBox)}
+    toggles = {
+        toggle.text(): toggle.isChecked() for toggle in row.findChildren(QCheckBox)
+    }
 
     assert row.height() == ROW_HEIGHT
     assert panel._list.item(0).sizeHint().height() == ROW_HEIGHT
@@ -447,13 +658,17 @@ def test_item_rounding_resizes_to_nearest_inch_and_restores(tmp_path) -> None:
     assert item.data(3) == 3
     assert item.data(4) == 1
     assert item.data(9) is True
-    assert round(item.transform().m11(), 3) == round((3 * 72) / 825, 3)
-    assert round(item.transform().m22(), 3) == round((1 * 72) / 390, 3)
+    edge_squares = _edge_length_squares(_item_polygon_points(item))
+    assert edge_squares[0] == pytest.approx((3 * 72) ** 2)
+    assert edge_squares[1] == pytest.approx((1 * 72) ** 2)
 
     viewport.set_item_rounding(item, False)
 
     assert round(item.data(3), 2) == 2.75
     assert round(item.data(4), 2) == 1.30
+    edge_squares = _edge_length_squares(_item_polygon_points(item))
+    assert edge_squares[0] == pytest.approx((2.75 * 72) ** 2)
+    assert edge_squares[1] == pytest.approx((1.3 * 72) ** 2)
     assert item.data(9) is False
 
 
@@ -556,13 +771,19 @@ def test_auto_nest_predefined_is_stable_when_run_twice_on_rotated_item() -> None
     app.processEvents()
 
     first_result = viewport.auto_nest_predefined(layout_path)
-    first_rotation = item.rotation()
-    first_transform = (round(item.transform().m11(), 6), round(item.transform().m22(), 6))
+    first_rotation = viewport.item_transform(item).rotation_deg
+    first_transform = (
+        round(item.transform().m11(), 6),
+        round(item.transform().m22(), 6),
+    )
     first_pos = item.pos()
 
     second_result = viewport.auto_nest_predefined(layout_path)
-    second_rotation = item.rotation()
-    second_transform = (round(item.transform().m11(), 6), round(item.transform().m22(), 6))
+    second_rotation = viewport.item_transform(item).rotation_deg
+    second_transform = (
+        round(item.transform().m11(), 6),
+        round(item.transform().m22(), 6),
+    )
     second_pos = item.pos()
 
     assert first_result == (1, 0)
@@ -573,7 +794,9 @@ def test_auto_nest_predefined_is_stable_when_run_twice_on_rotated_item() -> None
     assert second_pos == first_pos
 
 
-def test_auto_nest_predefined_only_places_selected_items_when_selection_exists() -> None:
+def test_auto_nest_predefined_only_places_selected_items_when_selection_exists() -> (
+    None
+):
     app = QApplication.instance() or QApplication([])
     output_dir = Path("test_outputs") / "auto_nest_selected"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -622,7 +845,9 @@ def test_auto_nest_predefined_only_places_selected_items_when_selection_exists()
     assert viewport._sheet_rect_for_index(0).contains(unselected.pos())
 
 
-def test_auto_nest_predefined_does_not_treat_unmatched_targets_as_movable_for_occupancy() -> None:
+def test_auto_nest_predefined_does_not_treat_unmatched_targets_as_movable_for_occupancy() -> (
+    None
+):
     app = QApplication.instance() or QApplication([])
     output_dir = Path("test_outputs") / "auto_nest_unmatched_occupancy"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -658,7 +883,9 @@ def test_auto_nest_predefined_does_not_treat_unmatched_targets_as_movable_for_oc
 
     viewport = PrintViewport()
     preset = viewport.add_image_file(preset_path, QPointF(0, 0))
-    unmatched = viewport.add_image_file(unmatched_path, viewport._sheet_rect_for_index(0).center())
+    unmatched = viewport.add_image_file(
+        unmatched_path, viewport._sheet_rect_for_index(0).center()
+    )
     assert preset is not None
     assert unmatched is not None
     app.processEvents()
@@ -671,7 +898,9 @@ def test_auto_nest_predefined_does_not_treat_unmatched_targets_as_movable_for_oc
     assert viewport._sheet_rect_for_index(0).contains(unmatched.pos())
 
 
-def test_grid_then_auto_nest_does_not_mix_test_set_unmatched_item_with_auto_nested_items() -> None:
+def test_grid_then_auto_nest_does_not_mix_test_set_unmatched_item_with_auto_nested_items() -> (
+    None
+):
     QApplication.instance() or QApplication([])
     image_dir = Path(r"C:\Users\Egor\Desktop\test-set")
     if not image_dir.exists():
@@ -706,7 +935,10 @@ def test_grid_then_auto_nest_does_not_mix_test_set_unmatched_item_with_auto_nest
     target_sheets = [
         sheet_index
         for sheet_index in range(viewport._sheet_count())
-        if _rects_overlap_with_area(viewport._item_logical_rect(target), viewport._sheet_rect_for_index(sheet_index))
+        if _rects_overlap_with_area(
+            viewport._item_logical_rect(target),
+            viewport._sheet_rect_for_index(sheet_index),
+        )
     ]
     assert len(target_sheets) == 1
 
@@ -715,9 +947,15 @@ def test_grid_then_auto_nest_does_not_mix_test_set_unmatched_item_with_auto_nest
     for item in viewport._image_items():
         if item is target:
             continue
-        if not _rects_overlap_with_area(viewport._item_logical_rect(item), viewport._sheet_rect_for_index(target_sheet)):
+        if not _rects_overlap_with_area(
+            viewport._item_logical_rect(item),
+            viewport._sheet_rect_for_index(target_sheet),
+        ):
             continue
-        if classify_preset_size(float(item.data(3) or 0), float(item.data(4) or 0)) is not None:
+        if (
+            classify_preset_size(float(item.data(3) or 0), float(item.data(4) or 0))
+            is not None
+        ):
             preset_items_on_target_sheet.append(Path(item.data(0)).name)
 
     assert preset_items_on_target_sheet == []
@@ -803,7 +1041,9 @@ def test_viewport_grid_nest_groups_same_size_items_in_rotated_grid() -> None:
     Image.new("RGBA", (360, 240), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
 
     viewport = PrintViewport()
-    viewport.set_artboard(ArtboardSettings(width_in=94.5, height_in=46.5, margin_in=0.25))
+    viewport.set_artboard(
+        ArtboardSettings(width_in=94.5, height_in=46.5, margin_in=0.25)
+    )
     first = viewport.add_image_file(image_path, QPointF(0, 0))
     second = viewport.add_image_file(image_path, QPointF(0, 0))
     assert first is not None
@@ -812,8 +1052,8 @@ def test_viewport_grid_nest_groups_same_size_items_in_rotated_grid() -> None:
     placed = viewport.grid_nest()
 
     assert placed == 2
-    assert first.rotation() == 90
-    assert second.rotation() == 90
+    assert viewport.item_transform(first).rotation_deg == 90
+    assert viewport.item_transform(second).rotation_deg == 90
     assert first.pos().y() == second.pos().y()
     assert abs(first.pos().x() - second.pos().x()) == 24 * 72
     assert len(viewport.cut_segments()) == 7
@@ -874,7 +1114,9 @@ def test_fill_space_nest_keeps_gap_when_adjacent_edges_have_different_lengths() 
     assert placements[0].y_in == 0
 
 
-def test_viewport_fill_space_nest_fills_existing_sheet_hole_with_selected_item() -> None:
+def test_viewport_fill_space_nest_fills_existing_sheet_hole_with_selected_item() -> (
+    None
+):
     QApplication.instance() or QApplication([])
     output_dir = Path("test_outputs") / "fill_space_nest"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -884,14 +1126,23 @@ def test_viewport_fill_space_nest_fills_existing_sheet_hole_with_selected_item()
     Image.new("RGBA", (200, 460), (255, 0, 0, 255)).save(target_path, dpi=(10, 10))
 
     viewport = PrintViewport()
-    viewport.set_artboard(ArtboardSettings(width_in=41.0, height_in=46.5, margin_in=0.25))
+    viewport.set_artboard(
+        ArtboardSettings(width_in=41.0, height_in=46.5, margin_in=0.25)
+    )
     blocker = viewport.add_image_file(blocker_path, viewport._margin_rect().center())
-    target = viewport.add_image_file(target_path, viewport._sheet_rect_for_index(1).center())
+    target = viewport.add_image_file(
+        target_path, viewport._sheet_rect_for_index(1).center()
+    )
     assert blocker is not None
     assert target is not None
     viewport.set_item_rounding(blocker, True)
     viewport.set_item_rounding(target, True)
-    blocker.setPos(QPointF(viewport._margin_rect().left() + 10 * 72, viewport._margin_rect().center().y()))
+    blocker.setPos(
+        QPointF(
+            viewport._margin_rect().left() + 10 * 72,
+            viewport._margin_rect().center().y(),
+        )
+    )
     target.setSelected(True)
 
     placed = viewport.fill_space_nest()
@@ -910,7 +1161,9 @@ def test_viewport_keeps_one_empty_sheet_after_last_sheet_is_occupied() -> None:
     Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
 
     viewport = PrintViewport()
-    item = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
+    item = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
     assert item is not None
     assert viewport._sheet_count() == 2
 
@@ -930,8 +1183,12 @@ def test_viewport_removes_intermediate_blank_sheets() -> None:
     Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
 
     viewport = PrintViewport()
-    first = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
-    second = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
+    first = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
+    second = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
     assert first is not None
     assert second is not None
 
@@ -950,11 +1207,15 @@ def test_existing_extra_sheets_update_when_artboard_changes() -> None:
     viewport = PrintViewport()
     viewport._ensure_sheet_count(2)
 
-    viewport.set_artboard(ArtboardSettings(width_in=94.5, height_in=46.5, margin_in=0.25))
+    viewport.set_artboard(
+        ArtboardSettings(width_in=94.5, height_in=46.5, margin_in=0.25)
+    )
 
     _shadow, sheet, margin = viewport._extra_sheet_items[0]
     assert sheet.rect() == viewport._sheet_rect_for_index(1)
-    assert margin.rect() == viewport._margin_rect_for_sheet_rect(viewport._sheet_rect_for_index(1))
+    assert margin.rect() == viewport._margin_rect_for_sheet_rect(
+        viewport._sheet_rect_for_index(1)
+    )
 
 
 def test_items_keep_sheet_relative_position_when_artboard_changes() -> None:
@@ -966,8 +1227,12 @@ def test_items_keep_sheet_relative_position_when_artboard_changes() -> None:
 
     viewport = PrintViewport()
     viewport._ensure_sheet_count(2)
+    blocker = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
     old_rect = viewport._sheet_rect_for_index(1)
     item = viewport.add_image_file(image_path, old_rect.center())
+    assert blocker is not None
     assert item is not None
 
     viewport.set_artboard(ArtboardSettings(width_in=94.5, height_in=96, margin_in=0.25))
@@ -978,7 +1243,10 @@ def test_items_keep_sheet_relative_position_when_artboard_changes() -> None:
 
 def test_sheet_marker_layout_places_corners_asymmetry_marker_and_limits_gaps() -> None:
     markers = sheet_marker_layout(width_in=48, height_in=96, margin_in=0.25)
-    positions = {(round(marker.center_x_in, 3), round(marker.center_y_in, 3)) for marker in markers}
+    positions = {
+        (round(marker.center_x_in, 3), round(marker.center_y_in, 3))
+        for marker in markers
+    }
 
     assert all(marker.diameter_mm == MARKER_DIAMETER_MM for marker in markers)
     assert (0.125, 0.125) in positions
@@ -987,8 +1255,15 @@ def test_sheet_marker_layout_places_corners_asymmetry_marker_and_limits_gaps() -
     assert (0.125, 95.875) in positions
     assert (0.125, 91.875) in positions
 
-    left_edge_y = sorted(marker.center_y_in for marker in markers if round(marker.center_x_in, 3) == 0.125)
-    assert max(second - first for first, second in zip(left_edge_y, left_edge_y[1:])) <= MAX_MARKER_GAP_IN
+    left_edge_y = sorted(
+        marker.center_y_in
+        for marker in markers
+        if round(marker.center_x_in, 3) == 0.125
+    )
+    assert (
+        max(second - first for first, second in zip(left_edge_y, left_edge_y[1:]))
+        <= MAX_MARKER_GAP_IN
+    )
 
 
 def test_viewport_draws_markers_around_items_on_occupied_sheets() -> None:
@@ -1002,15 +1277,21 @@ def test_viewport_draws_markers_around_items_on_occupied_sheets() -> None:
 
     assert len(viewport._marker_items) == 0
 
-    item = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
+    item = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
     assert item is not None
 
     assert len(viewport._marker_items) == 5
     assert viewport._marker_items[0].brush().color().name() == "#000000"
-    assert round(viewport._marker_items[0].rect().width(), 3) == round((MARKER_DIAMETER_MM / 25.4) * 72, 3)
+    assert round(viewport._marker_items[0].rect().width(), 3) == round(
+        (MARKER_DIAMETER_MM / 25.4) * 72, 3
+    )
     item_bounds = viewport._item_logical_rect(item)
     marker_padding = ITEM_MARKER_GAP_IN * 72
-    marker_bounds = item_bounds.adjusted(-marker_padding, -marker_padding, marker_padding, marker_padding)
+    marker_bounds = item_bounds.adjusted(
+        -marker_padding, -marker_padding, marker_padding, marker_padding
+    )
     for marker in viewport._marker_items:
         assert marker_bounds.contains(marker.rect().center())
 
@@ -1027,7 +1308,10 @@ def test_cut_segments_dedupe_shared_touching_edge() -> None:
         ]
     )
     keys = {
-        tuple(round(value, 3) for value in (segment.x1, segment.y1, segment.x2, segment.y2))
+        tuple(
+            round(value, 3)
+            for value in (segment.x1, segment.y1, segment.x2, segment.y2)
+        )
         for segment in segments
     }
     reversed_shared_key = (10, 10, 10, 0)
@@ -1082,7 +1366,9 @@ def test_print_ready_items_are_fully_inside_print_area_and_can_be_highlighted() 
     viewport = PrintViewport()
     print_area = viewport._print_area_rects()[0]
     ready = viewport.add_image_file(image_path, print_area.center())
-    outside = viewport.add_image_file(image_path, QPointF(print_area.right() + 500, print_area.center().y()))
+    outside = viewport.add_image_file(
+        image_path, QPointF(print_area.right() + 500, print_area.center().y())
+    )
 
     assert ready is not None
     assert outside is not None
@@ -1126,8 +1412,12 @@ def test_intersecting_image_items_exclude_margin_and_edge_touching_items() -> No
     print_area = viewport._print_area_rects()[0]
 
     margin_crossing = viewport.add_image_file(image_path, QPointF(0, 0))
-    first_overlap = viewport.add_image_file(image_path, QPointF(print_area.center().x(), print_area.center().y()))
-    second_overlap = viewport.add_image_file(image_path, QPointF(print_area.center().x() + 10, print_area.center().y()))
+    first_overlap = viewport.add_image_file(
+        image_path, QPointF(print_area.center().x(), print_area.center().y())
+    )
+    second_overlap = viewport.add_image_file(
+        image_path, QPointF(print_area.center().x() + 10, print_area.center().y())
+    )
     touching = viewport.add_image_file(image_path, QPointF(0, 0))
     assert margin_crossing is not None
     assert first_overlap is not None
@@ -1136,13 +1426,22 @@ def test_intersecting_image_items_exclude_margin_and_edge_touching_items() -> No
 
     half_width = touching.sceneBoundingRect().width() / 2
     half_height = touching.sceneBoundingRect().height() / 2
-    margin_crossing.setPos(QPointF(print_area.right() + half_width - 10, print_area.top() + half_width))
-    touching.setPos(QPointF(first_overlap.sceneBoundingRect().right() + half_width, print_area.bottom() - half_height))
+    margin_crossing.setPos(
+        QPointF(print_area.right() + half_width - 10, print_area.top() + half_width)
+    )
+    touching.setPos(
+        QPointF(
+            first_overlap.sceneBoundingRect().right() + half_width,
+            print_area.bottom() - half_height,
+        )
+    )
 
-    assert viewport.intersecting_image_items() == [second_overlap, first_overlap]
+    assert set(viewport.intersecting_image_items()) == {first_overlap, second_overlap}
 
     viewport.set_ready_highlight_enabled(True)
-    highlight_colors = [highlight.pen().color().name() for highlight in viewport._ready_highlight_items]
+    highlight_colors = [
+        highlight.pen().color().name() for highlight in viewport._ready_highlight_items
+    ]
     assert highlight_colors.count("#dc2626") == 2
     assert "#00a651" in highlight_colors
 
@@ -1162,9 +1461,109 @@ def test_intersecting_image_items_ignore_tiny_edge_overlap() -> None:
     assert second is not None
 
     half_width = second.sceneBoundingRect().width() / 2
-    second.setPos(QPointF(first.sceneBoundingRect().right() + half_width - 0.5, first.pos().y()))
+    second.setPos(
+        QPointF(first.sceneBoundingRect().right() + half_width - 0.5, first.pos().y())
+    )
 
     assert viewport.intersecting_image_items() == []
+
+
+def test_viewport_set_item_transform_updates_position_size_and_rotation() -> None:
+    QApplication.instance() or QApplication([])
+    output_dir = Path("test_outputs") / "viewport_transform"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    image_path = output_dir / "transform.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
+
+    viewport = PrintViewport()
+    item = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
+    assert item is not None
+    changed = []
+    viewport.image_transform_changed.connect(changed.append)
+
+    viewport.set_item_transform(
+        item, ItemTransform(x_in=1, y_in=2, width_in=3, height_in=4, rotation_deg=30)
+    )
+
+    sheet_rect = viewport._sheet_rect_for_index(0)
+    assert float(item.data(3)) == pytest.approx(3)
+    assert float(item.data(4)) == pytest.approx(4)
+    assert viewport.item_transform(item).rotation_deg == pytest.approx(30)
+    assert item.pos().x() == pytest.approx(sheet_rect.left() + 2.5 * 72)
+    assert item.pos().y() == pytest.approx(sheet_rect.top() + 4 * 72)
+    assert changed == [item]
+
+    transform = viewport.item_transform(item)
+    assert transform.x_in == pytest.approx(1)
+    assert transform.y_in == pytest.approx(2)
+    assert transform.width_in == pytest.approx(3)
+    assert transform.height_in == pytest.approx(4)
+    assert transform.rotation_deg == pytest.approx(30)
+
+
+def test_viewport_quarter_turn_transform_keeps_requested_scene_size() -> None:
+    QApplication.instance() or QApplication([])
+    output_dir = Path("test_outputs") / "viewport_quarter_turn"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    image_path = output_dir / "quarter-turn.png"
+    Image.new("RGBA", (200, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
+
+    viewport = PrintViewport()
+    item = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
+    assert item is not None
+
+    viewport.set_item_transform(
+        item, ItemTransform(x_in=1, y_in=2, width_in=3, height_in=4, rotation_deg=90)
+    )
+
+    points = _item_polygon_points(item)
+    edge_squares = _edge_length_squares(points)
+    assert edge_squares[0] == pytest.approx((3 * 72) ** 2)
+    assert edge_squares[1] == pytest.approx((4 * 72) ** 2)
+    assert all(
+        dot == pytest.approx(0, abs=0.01) for dot in _corner_dot_products(points)
+    )
+    assert viewport.item_transform(item).width_in == pytest.approx(3)
+    assert viewport.item_transform(item).height_in == pytest.approx(4)
+    assert viewport.item_transform(item).rotation_deg == pytest.approx(90)
+
+
+def test_viewport_draws_rotated_cut_path_outline() -> None:
+    QApplication.instance() or QApplication([])
+    output_dir = Path("test_outputs") / "rotated_cut_path"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    image_path = output_dir / "rotated.png"
+    Image.new("RGBA", (200, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
+
+    viewport = PrintViewport()
+    item = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
+    assert item is not None
+
+    viewport.set_item_transform(
+        item, ItemTransform(x_in=1, y_in=2, width_in=3, height_in=4, rotation_deg=45)
+    )
+
+    points = _item_polygon_points(item)
+    edge_squares = _edge_length_squares(points)
+    assert edge_squares[0] == pytest.approx((3 * 72) ** 2)
+    assert edge_squares[1] == pytest.approx((4 * 72) ** 2)
+    assert all(
+        dot == pytest.approx(0, abs=0.01) for dot in _corner_dot_products(points)
+    )
+
+    segments = viewport.cut_segments()
+    assert len(segments) == 4
+    assert len(viewport._cut_path_items) == 4
+    assert any(
+        abs(segment.x1 - segment.x2) > 0.01 and abs(segment.y1 - segment.y2) > 0.01
+        for segment in segments
+    )
 
 
 def test_item_panel_round_checkbox_defaults_on_and_can_restore(tmp_path) -> None:
@@ -1187,7 +1586,9 @@ def test_item_panel_round_checkbox_defaults_on_and_can_restore(tmp_path) -> None
     assert item.data(3) == 3
     assert item.data(4) == 1
 
-    round_toggle = next(toggle for toggle in row.findChildren(QCheckBox) if toggle.text() == "Round")
+    round_toggle = next(
+        toggle for toggle in row.findChildren(QCheckBox) if toggle.text() == "Round"
+    )
     assert round_toggle.isChecked()
     round_toggle.setChecked(False)
 
@@ -1340,8 +1741,12 @@ def test_artboard_grid_spacing_gets_coarser_when_zoomed_out() -> None:
     QApplication.instance() or QApplication([])
     viewport = PrintViewport()
 
-    actual_size_step = viewport._inch_step_for_min_pixels(pixels_per_inch=72, minimum_pixels=12)
-    large_sheet_fit_step = viewport._inch_step_for_min_pixels(pixels_per_inch=8, minimum_pixels=12)
+    actual_size_step = viewport._inch_step_for_min_pixels(
+        pixels_per_inch=72, minimum_pixels=12
+    )
+    large_sheet_fit_step = viewport._inch_step_for_min_pixels(
+        pixels_per_inch=8, minimum_pixels=12
+    )
 
     assert actual_size_step < large_sheet_fit_step
     assert large_sheet_fit_step >= 2
@@ -1386,6 +1791,49 @@ def test_artboard_panel_emits_changed_settings() -> None:
     assert changes[-1].margin_in == 0.25
 
 
+def test_artboard_panel_transform_inputs_emit_selected_item_transform() -> None:
+    QApplication.instance() or QApplication([])
+    panel = ArtboardPanel(ArtboardSettings(width_in=48, height_in=96, margin_in=0.25))
+    selected_item = object()
+    changes = []
+    panel.item_transform_changed.connect(
+        lambda item, transform: changes.append((item, transform))
+    )
+
+    panel.set_selected_item_transform(selected_item, ItemTransform(1, 2, 3, 4, 5))
+
+    assert panel.selected_transform_item() is selected_item
+    assert panel._transform_x_input.isEnabled()
+    assert panel._transform_lock_input.isEnabled()
+    assert panel._transform_lock_input.isChecked()
+    assert panel._transform_x_input.value() == pytest.approx(1)
+    assert panel._transform_y_input.value() == pytest.approx(2)
+    assert panel._transform_width_input.value() == pytest.approx(3)
+    assert panel._transform_height_input.value() == pytest.approx(4)
+    assert panel._transform_rotation_input.value() == pytest.approx(5)
+
+    panel._transform_width_input.setValue(6.5)
+
+    locked_height = panel._transform_height_input.value()
+    assert locked_height == pytest.approx(6.5 / 0.75, abs=0.01)
+    assert changes[-1][0] is selected_item
+    assert changes[-1][1].width_in == pytest.approx(6.5)
+    assert changes[-1][1].height_in == pytest.approx(locked_height)
+
+    panel._transform_lock_input.setChecked(False)
+    panel._transform_width_input.setValue(7.5)
+
+    assert panel._transform_height_input.value() == pytest.approx(locked_height)
+    assert changes[-1][1].width_in == pytest.approx(7.5)
+    assert changes[-1][1].height_in == pytest.approx(locked_height)
+
+    panel.set_selected_item_transform(None, None)
+
+    assert panel.selected_transform_item() is None
+    assert not panel._transform_x_input.isEnabled()
+    assert not panel._transform_lock_input.isEnabled()
+
+
 def test_artboard_panel_updates_sheet_export_ui() -> None:
     QApplication.instance() or QApplication([])
     panel = ArtboardPanel(ArtboardSettings(width_in=48, height_in=96, margin_in=0.25))
@@ -1398,7 +1846,11 @@ def test_artboard_panel_updates_sheet_export_ui() -> None:
 
     labels = [label.text() for label in panel.findChildren(QLabel)]
     buttons = [button.text() for button in panel.findChildren(QPushButton)]
-    thumbnails = [label for label in panel.findChildren(QLabel) if label.objectName() == "sheetThumb"]
+    thumbnails = [
+        label
+        for label in panel.findChildren(QLabel)
+        if label.objectName() == "sheetThumb"
+    ]
 
     assert panel.minimumWidth() >= 360
     assert "Sheets" in labels
@@ -1451,10 +1903,14 @@ def test_export_sheet_pdf_writes_print_and_cut_layers() -> None:
     Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
 
     viewport = PrintViewport()
-    item = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
+    item = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
     assert item is not None
     sheet = viewport.export_sheet_data(0)
-    settings = ExportSettings(print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir)
+    settings = ExportSettings(
+        print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir
+    )
 
     print_result = export_sheet_pdf(sheet, ExportKind.PRINT, settings)
     cut_result = export_sheet_pdf(sheet, ExportKind.CUT, settings)
@@ -1488,9 +1944,13 @@ def test_export_sheet_pdf_never_overwrites_existing_file() -> None:
     existing_path.write_bytes(existing_bytes)
 
     viewport = PrintViewport()
-    item = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
+    item = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
     assert item is not None
-    settings = ExportSettings(print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir)
+    settings = ExportSettings(
+        print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir
+    )
 
     result = export_sheet_pdf(viewport.export_sheet_data(0), ExportKind.PRINT, settings)
 
@@ -1511,19 +1971,31 @@ def test_export_sheet_pdf_trims_to_half_inch_outside_markers() -> None:
     Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
 
     viewport = PrintViewport()
-    item = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
+    item = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
     assert item is not None
     sheet = viewport.export_sheet_data(0)
-    settings = ExportSettings(print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir)
+    settings = ExportSettings(
+        print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir
+    )
 
     result = export_sheet_pdf(sheet, ExportKind.PRINT, settings)
 
     marker_radius = (MARKER_DIAMETER_MM / 25.4) * 72 / 2
     trim_padding = EXPORT_MARKER_PADDING_IN * 72
-    marker_left = min(marker.center_x - marker_radius - trim_padding for marker in sheet.markers)
-    marker_top = min(marker.center_y - marker_radius - trim_padding for marker in sheet.markers)
-    marker_right = max(marker.center_x + marker_radius + trim_padding for marker in sheet.markers)
-    marker_bottom = max(marker.center_y + marker_radius + trim_padding for marker in sheet.markers)
+    marker_left = min(
+        marker.center_x - marker_radius - trim_padding for marker in sheet.markers
+    )
+    marker_top = min(
+        marker.center_y - marker_radius - trim_padding for marker in sheet.markers
+    )
+    marker_right = max(
+        marker.center_x + marker_radius + trim_padding for marker in sheet.markers
+    )
+    marker_bottom = max(
+        marker.center_y + marker_radius + trim_padding for marker in sheet.markers
+    )
     expected_width = min(sheet.width_points, marker_right) - max(0, marker_left)
     expected_height = min(sheet.height_points, marker_bottom) - max(0, marker_top)
 
@@ -1540,7 +2012,9 @@ def test_viewport_reports_sheet_item_summary() -> None:
     Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
 
     viewport = PrintViewport()
-    item = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
+    item = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
     assert item is not None
 
     rows = viewport.sheet_item_summary()
@@ -1557,7 +2031,9 @@ def test_viewport_sheet_thumbnail_renders_artwork_preview() -> None:
     Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
 
     viewport = PrintViewport()
-    item = viewport.add_image_file(image_path, viewport._sheet_rect_for_index(0).center())
+    item = viewport.add_image_file(
+        image_path, viewport._sheet_rect_for_index(0).center()
+    )
     assert item is not None
 
     thumbnail = viewport.sheet_thumbnail(0, QSize(96, 72)).toImage()
@@ -1574,7 +2050,11 @@ def test_viewport_sheet_thumbnail_renders_artwork_preview() -> None:
 
 def test_export_sheet_pdf_rejects_unconfigured_destination() -> None:
     sheet = PrintViewport().export_sheet_data(0)
-    settings = ExportSettings(print_directory=Path(""), cut_directory=Path("test_outputs/cut"), local_temp_directory=Path("test_outputs/temp"))
+    settings = ExportSettings(
+        print_directory=Path(""),
+        cut_directory=Path("test_outputs/cut"),
+        local_temp_directory=Path("test_outputs/temp"),
+    )
 
     with pytest.raises(ValueError, match="print export directory"):
         export_sheet_pdf(sheet, ExportKind.PRINT, settings)
