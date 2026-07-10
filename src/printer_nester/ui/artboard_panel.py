@@ -18,14 +18,26 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
-from printer_nester.core.artboard import ArtboardSettings
+from printer_nester.core.artboard import (
+    DEFAULT_SLOT_LAYOUT,
+    ArtboardSettings,
+    SlotLayoutSettings,
+)
+from printer_nester.core.nest_profile import NestProfileKind
 from printer_nester.core.item_transform import ItemTransform
 from printer_nester.core.pdf_export import ExportSettings
-from printer_nester.ui.preferences import load_export_settings, save_default_artboard, save_export_settings
+from printer_nester.ui.preferences import (
+    load_export_settings,
+    save_default_artboard,
+    save_default_slot_layout,
+    save_default_slot_mask_path,
+    save_export_settings,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,10 +53,17 @@ class SheetPanelRow:
 class ArtboardPanel(QWidget):
     artboard_changed = Signal(object)
     export_all_requested = Signal()
+    export_jig_mockup_requested = Signal()
+    slot_layout_changed = Signal(object)
+    jig_mask_changed = Signal(object)
     export_sheet_requested = Signal(int, str)
     item_transform_changed = Signal(object, object)
 
-    def __init__(self, artboard: ArtboardSettings) -> None:
+    def __init__(
+        self,
+        artboard: ArtboardSettings,
+        slot_layout: SlotLayoutSettings = DEFAULT_SLOT_LAYOUT,
+    ) -> None:
         super().__init__()
 
         self._updating = False
@@ -52,6 +71,8 @@ class ArtboardPanel(QWidget):
         self._selected_transform_item = None
         self._transform_aspect_ratio = 1.0
         self._sheet_list_layout: QVBoxLayout | None = None
+        self._slot_mask_input: QLineEdit | None = None
+        self._profile_kind = NestProfileKind.SHEET
         self.setMinimumWidth(360)
         self.setMaximumWidth(520)
 
@@ -59,34 +80,24 @@ class ArtboardPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
-        title = QLabel("Artboard")
-        title.setObjectName("panelTitle")
+        self._title = QLabel("Artboard")
+        self._title.setObjectName("panelTitle")
+        self._sheet_artboard_section = self._build_sheet_artboard_section(artboard)
+        self._slot_layout_section = self._build_slot_layout_section(slot_layout)
 
-        form = QFormLayout()
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self._save_default_button = QPushButton("Set as Default")
+        self._save_default_button.clicked.connect(self._save_default)
 
-        self._width_input = self._make_spinbox(minimum=1, maximum=1_000, value=artboard.width_in)
-        self._height_input = self._make_spinbox(minimum=1, maximum=1_000, value=artboard.height_in)
-        self._margin_input = self._make_spinbox(minimum=0, maximum=24, value=artboard.margin_in)
-
-        form.addRow("Width (in)", self._width_input)
-        form.addRow("Height (in)", self._height_input)
-        form.addRow("Margin (in)", self._margin_input)
-
-        save_button = QPushButton("Set as Default")
-        save_button.clicked.connect(self._save_default)
-
-        layout.addWidget(title)
-        layout.addLayout(form)
-        layout.addWidget(save_button)
-        layout.addWidget(self._build_transform_section())
+        layout.addWidget(self._title)
+        layout.addWidget(self._sheet_artboard_section)
+        layout.addWidget(self._slot_layout_section)
+        layout.addWidget(self._save_default_button)
+        self._transform_section = self._build_transform_section()
+        layout.addWidget(self._transform_section)
         layout.addWidget(self._build_export_settings_section())
         layout.addSpacing(8)
         layout.addWidget(self._build_sheet_export_section(), 1)
-
-        self._width_input.valueChanged.connect(self._emit_artboard_changed)
-        self._height_input.valueChanged.connect(self._emit_artboard_changed)
-        self._margin_input.valueChanged.connect(self._emit_artboard_changed)
+        self.set_profile_kind(NestProfileKind.SHEET)
 
     def artboard(self) -> ArtboardSettings:
         return ArtboardSettings(
@@ -101,6 +112,66 @@ class ArtboardPanel(QWidget):
         self._height_input.setValue(artboard.height_in)
         self._margin_input.setValue(artboard.margin_in)
         self._updating = False
+
+    def slot_layout(self) -> SlotLayoutSettings:
+        return SlotLayoutSettings(
+            slot_width_in=self._slot_width_input.value(),
+            slot_height_in=self._slot_height_input.value(),
+            slot_margin_in=0.0,
+            horizontal_spacing_in=self._slot_horizontal_spacing_input.value(),
+            vertical_spacing_in=self._slot_vertical_spacing_input.value(),
+            columns=self._slot_columns_input.value(),
+            rows=self._slot_rows_input.value(),
+            outside_margin_in=self._slot_outside_margin_input.value(),
+        )
+
+    def set_slot_layout(self, slot_layout: SlotLayoutSettings) -> None:
+        self._updating = True
+        self._slot_width_input.setValue(slot_layout.slot_width_in)
+        self._slot_height_input.setValue(slot_layout.slot_height_in)
+        self._slot_horizontal_spacing_input.setValue(slot_layout.horizontal_spacing_in)
+        self._slot_vertical_spacing_input.setValue(slot_layout.vertical_spacing_in)
+        self._slot_columns_input.setValue(slot_layout.columns)
+        self._slot_rows_input.setValue(slot_layout.rows)
+        self._slot_outside_margin_input.setValue(slot_layout.outside_margin_in)
+        self._updating = False
+
+    def jig_mask_path(self) -> Path | None:
+        if self._slot_mask_input is None:
+            return None
+        value = self._slot_mask_input.text().strip()
+        return Path(value) if value else None
+
+    def set_jig_mask_path(self, path: Path | None) -> None:
+        if self._slot_mask_input is None:
+            return
+        self._slot_mask_input.setText(str(path) if path is not None else "")
+
+    def set_profile_kind(self, kind: NestProfileKind | str) -> None:
+        self._profile_kind = NestProfileKind(kind)
+        is_jig = self._profile_kind == NestProfileKind.JIG
+        self._title.setText("Jig Slots" if is_jig else "Artboard")
+        self._sheet_artboard_section.setVisible(not is_jig)
+        self._slot_layout_section.setVisible(is_jig)
+        self._transform_section.setVisible(not is_jig)
+        self._export_settings_title.setText(
+            "Print Export" if is_jig else "Export Folders"
+        )
+        self._cut_export_row.setVisible(not is_jig)
+        self._temp_export_row.setVisible(not is_jig)
+        self._save_default_button.setToolTip(
+            "Saves this jig slot layout and mask path as the default."
+            if is_jig
+            else "Saves this sheet artboard as the default."
+        )
+        if hasattr(self, "_sheet_export_title"):
+            self._sheet_export_title.setText("Jig Sheets" if is_jig else "Sheets")
+        if hasattr(self, "_sheet_export_all_button"):
+            self._sheet_export_all_button.setToolTip(
+                "Exports every pending jig PDF using the configured print folder."
+                if is_jig
+                else "Exports every pending print and cut PDF using the configured folders."
+            )
 
     def set_sheet_rows(self, rows: list[SheetPanelRow]) -> None:
         if self._sheet_list_layout is None:
@@ -120,7 +191,9 @@ class ArtboardPanel(QWidget):
     def selected_transform_item(self):  # type: ignore[no-untyped-def]
         return self._selected_transform_item
 
-    def set_selected_item_transform(self, item, transform: ItemTransform | None) -> None:  # type: ignore[no-untyped-def]
+    def set_selected_item_transform(
+        self, item, transform: ItemTransform | None
+    ) -> None:  # type: ignore[no-untyped-def]
         self._selected_transform_item = item
         self._updating_transform = True
         enabled = item is not None and transform is not None
@@ -133,7 +206,11 @@ class ArtboardPanel(QWidget):
             self._transform_height_input.setValue(0.001)
             self._transform_rotation_input.setValue(0)
         else:
-            self._transform_aspect_ratio = transform.width_in / transform.height_in if transform.height_in > 0 else 1.0
+            self._transform_aspect_ratio = (
+                transform.width_in / transform.height_in
+                if transform.height_in > 0
+                else 1.0
+            )
             self._transform_x_input.setValue(transform.x_in)
             self._transform_y_input.setValue(transform.y_in)
             self._transform_width_input.setValue(transform.width_in)
@@ -150,6 +227,168 @@ class ArtboardPanel(QWidget):
             height_in=self._transform_height_input.value(),
             rotation_deg=self._transform_rotation_input.value(),
         )
+
+    def _build_sheet_artboard_section(self, artboard: ArtboardSettings) -> QWidget:
+        section = QFrame()
+        section.setObjectName("sheetArtboardSection")
+        section.setStyleSheet(
+            """
+            QFrame#sheetArtboardSection {
+                border-top: 1px solid #d3d8de;
+                padding-top: 8px;
+            }
+            QLabel#sectionTitle {
+                color: #202428;
+                font-weight: 600;
+            }
+            """
+        )
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        title = QLabel("Sheet")
+        title.setObjectName("sectionTitle")
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self._width_input = self._make_spinbox(
+            minimum=1, maximum=1_000, value=artboard.width_in
+        )
+        self._height_input = self._make_spinbox(
+            minimum=1, maximum=1_000, value=artboard.height_in
+        )
+        self._margin_input = self._make_spinbox(
+            minimum=0, maximum=24, value=artboard.margin_in
+        )
+        form.addRow("Width (in)", self._width_input)
+        form.addRow("Height (in)", self._height_input)
+        form.addRow("Margin (in)", self._margin_input)
+        layout.addWidget(title)
+        layout.addLayout(form)
+        self._width_input.valueChanged.connect(self._emit_artboard_changed)
+        self._height_input.valueChanged.connect(self._emit_artboard_changed)
+        self._margin_input.valueChanged.connect(self._emit_artboard_changed)
+        return section
+
+    def _build_slot_layout_section(self, slot_layout: SlotLayoutSettings) -> QWidget:
+        section = QFrame()
+        section.setObjectName("slotLayoutSection")
+        section.setStyleSheet(
+            """
+            QFrame#slotLayoutSection {
+                border-top: 1px solid #d3d8de;
+                padding-top: 8px;
+            }
+            QLabel#sectionTitle {
+                color: #202428;
+                font-weight: 600;
+            }
+            """
+        )
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        title = QLabel("Slot Layout")
+        title.setObjectName("sectionTitle")
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(6)
+        self._slot_width_input = self._make_spinbox(
+            minimum=0.001, maximum=1_000, value=slot_layout.slot_width_in
+        )
+        self._slot_height_input = self._make_spinbox(
+            minimum=0.001, maximum=1_000, value=slot_layout.slot_height_in
+        )
+
+        self._slot_horizontal_spacing_input = self._make_spinbox(
+            minimum=0, maximum=100, value=slot_layout.horizontal_spacing_in
+        )
+        self._slot_vertical_spacing_input = self._make_spinbox(
+            minimum=0, maximum=100, value=slot_layout.vertical_spacing_in
+        )
+        self._slot_columns_input = self._make_int_spinbox(
+            minimum=1, maximum=100, value=slot_layout.columns
+        )
+        self._slot_rows_input = self._make_int_spinbox(
+            minimum=1, maximum=100, value=slot_layout.rows
+        )
+        self._slot_outside_margin_input = self._make_spinbox(
+            minimum=0, maximum=100, value=slot_layout.outside_margin_in
+        )
+        grid.addWidget(QLabel("Slot W"), 0, 0)
+        grid.addWidget(self._slot_width_input, 0, 1)
+        grid.addWidget(QLabel("Slot H"), 0, 2)
+        grid.addWidget(self._slot_height_input, 0, 3)
+        grid.addWidget(QLabel("Slots X"), 1, 0)
+        grid.addWidget(self._slot_columns_input, 1, 1)
+        grid.addWidget(QLabel("Slots Y"), 1, 2)
+        grid.addWidget(self._slot_rows_input, 1, 3)
+        grid.addWidget(QLabel("H Spacing"), 2, 0)
+        grid.addWidget(self._slot_horizontal_spacing_input, 2, 1)
+        grid.addWidget(QLabel("V Spacing"), 2, 2)
+        grid.addWidget(self._slot_vertical_spacing_input, 2, 3)
+        grid.addWidget(QLabel("Artboard Margin"), 3, 0)
+        grid.addWidget(self._slot_outside_margin_input, 3, 1, 1, 3)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
+        mask_title = QLabel("Slot Mask")
+        mask_title.setObjectName("sectionTitle")
+        self._slot_mask_input = QLineEdit()
+        self._slot_mask_input.setReadOnly(True)
+        self._slot_mask_input.setPlaceholderText("No mask selected")
+        browse_mask_button = QPushButton("Browse")
+        clear_mask_button = QPushButton("Clear")
+        browse_mask_button.clicked.connect(self._browse_slot_mask)
+        clear_mask_button.clicked.connect(self._clear_slot_mask)
+        mask_row = QHBoxLayout()
+        mask_row.setContentsMargins(0, 0, 0, 0)
+        mask_row.setSpacing(6)
+        mask_row.addWidget(self._slot_mask_input, 1)
+        mask_row.addWidget(browse_mask_button)
+        mask_row.addWidget(clear_mask_button)
+
+        layout.addWidget(title)
+        layout.addLayout(grid)
+        layout.addSpacing(6)
+        mockup_button = QPushButton("Export Jig Mockup PDF")
+        mockup_button.setToolTip(
+            "Exports this jig artboard and slot layout as a vector PDF."
+        )
+        mockup_button.clicked.connect(self.export_jig_mockup_requested.emit)
+
+        layout.addWidget(mask_title)
+        layout.addLayout(mask_row)
+        layout.addSpacing(6)
+        layout.addWidget(mockup_button)
+        for input_widget in (
+            self._slot_width_input,
+            self._slot_height_input,
+            self._slot_horizontal_spacing_input,
+            self._slot_vertical_spacing_input,
+            self._slot_columns_input,
+            self._slot_rows_input,
+            self._slot_outside_margin_input,
+        ):
+            input_widget.valueChanged.connect(self._emit_slot_layout_changed)
+        return section
+
+    def _browse_slot_mask(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Slot Mask",
+            "",
+            "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)",
+        )
+        if not path:
+            return
+        if self._slot_mask_input is not None:
+            self._slot_mask_input.setText(path)
+        self.jig_mask_changed.emit(Path(path))
+
+    def _clear_slot_mask(self) -> None:
+        if self._slot_mask_input is not None:
+            self._slot_mask_input.clear()
+        self.jig_mask_changed.emit(None)
 
     def _build_transform_section(self) -> QWidget:
         section = QFrame()
@@ -177,11 +416,21 @@ class ArtboardPanel(QWidget):
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(6)
 
-        self._transform_x_input = self._make_transform_spinbox(-100_000, 100_000, 0, 0.125, " in")
-        self._transform_y_input = self._make_transform_spinbox(-100_000, 100_000, 0, 0.125, " in")
-        self._transform_width_input = self._make_transform_spinbox(0.001, 100_000, 1, 0.125, " in")
-        self._transform_height_input = self._make_transform_spinbox(0.001, 100_000, 1, 0.125, " in")
-        self._transform_rotation_input = self._make_transform_spinbox(-3600, 3600, 0, 1, " deg")
+        self._transform_x_input = self._make_transform_spinbox(
+            -100_000, 100_000, 0, 0.125, " in"
+        )
+        self._transform_y_input = self._make_transform_spinbox(
+            -100_000, 100_000, 0, 0.125, " in"
+        )
+        self._transform_width_input = self._make_transform_spinbox(
+            0.001, 100_000, 1, 0.125, " in"
+        )
+        self._transform_height_input = self._make_transform_spinbox(
+            0.001, 100_000, 1, 0.125, " in"
+        )
+        self._transform_rotation_input = self._make_transform_spinbox(
+            -3600, 3600, 0, 1, " deg"
+        )
         self._transform_lock_input = QCheckBox("Lock proportions")
         self._transform_lock_input.setChecked(True)
         self._transform_lock_input.toggled.connect(self._handle_transform_lock_toggled)
@@ -202,16 +451,24 @@ class ArtboardPanel(QWidget):
 
         self._transform_x_input.valueChanged.connect(self._emit_item_transform_changed)
         self._transform_y_input.valueChanged.connect(self._emit_item_transform_changed)
-        self._transform_width_input.valueChanged.connect(self._handle_transform_width_changed)
-        self._transform_height_input.valueChanged.connect(self._handle_transform_height_changed)
-        self._transform_rotation_input.valueChanged.connect(self._emit_item_transform_changed)
+        self._transform_width_input.valueChanged.connect(
+            self._handle_transform_width_changed
+        )
+        self._transform_height_input.valueChanged.connect(
+            self._handle_transform_height_changed
+        )
+        self._transform_rotation_input.valueChanged.connect(
+            self._emit_item_transform_changed
+        )
 
         layout.addWidget(title)
         layout.addLayout(grid)
         self._set_transform_controls_enabled(False)
         return section
 
-    def _make_transform_spinbox(self, minimum: float, maximum: float, value: float, step: float, suffix: str) -> QDoubleSpinBox:
+    def _make_transform_spinbox(
+        self, minimum: float, maximum: float, value: float, step: float, suffix: str
+    ) -> QDoubleSpinBox:
         spinbox = QDoubleSpinBox()
         spinbox.setRange(minimum, maximum)
         spinbox.setDecimals(2)
@@ -221,7 +478,11 @@ class ArtboardPanel(QWidget):
         spinbox.setValue(value)
         return spinbox
 
-    def _transform_spinboxes(self) -> tuple[QDoubleSpinBox, QDoubleSpinBox, QDoubleSpinBox, QDoubleSpinBox, QDoubleSpinBox]:
+    def _transform_spinboxes(
+        self,
+    ) -> tuple[
+        QDoubleSpinBox, QDoubleSpinBox, QDoubleSpinBox, QDoubleSpinBox, QDoubleSpinBox
+    ]:
         return (
             self._transform_x_input,
             self._transform_y_input,
@@ -238,19 +499,33 @@ class ArtboardPanel(QWidget):
     def _handle_transform_lock_toggled(self, checked: bool) -> None:
         if checked:
             height = self._transform_height_input.value()
-            self._transform_aspect_ratio = self._transform_width_input.value() / height if height > 0 else 1.0
+            self._transform_aspect_ratio = (
+                self._transform_width_input.value() / height if height > 0 else 1.0
+            )
 
     def _handle_transform_width_changed(self, value: float) -> None:
-        if not self._updating_transform and self._transform_lock_input.isChecked() and self._transform_aspect_ratio > 0:
+        if (
+            not self._updating_transform
+            and self._transform_lock_input.isChecked()
+            and self._transform_aspect_ratio > 0
+        ):
             self._updating_transform = True
-            self._transform_height_input.setValue(max(0.001, value / self._transform_aspect_ratio))
+            self._transform_height_input.setValue(
+                max(0.001, value / self._transform_aspect_ratio)
+            )
             self._updating_transform = False
         self._emit_item_transform_changed()
 
     def _handle_transform_height_changed(self, value: float) -> None:
-        if not self._updating_transform and self._transform_lock_input.isChecked() and self._transform_aspect_ratio > 0:
+        if (
+            not self._updating_transform
+            and self._transform_lock_input.isChecked()
+            and self._transform_aspect_ratio > 0
+        ):
             self._updating_transform = True
-            self._transform_width_input.setValue(max(0.001, value * self._transform_aspect_ratio))
+            self._transform_width_input.setValue(
+                max(0.001, value * self._transform_aspect_ratio)
+            )
             self._updating_transform = False
         self._emit_item_transform_changed()
 
@@ -259,10 +534,16 @@ class ArtboardPanel(QWidget):
             return
         if not self._transform_lock_input.isChecked():
             height = self._transform_height_input.value()
-            self._transform_aspect_ratio = self._transform_width_input.value() / height if height > 0 else 1.0
-        self.item_transform_changed.emit(self._selected_transform_item, self.transform_values())
+            self._transform_aspect_ratio = (
+                self._transform_width_input.value() / height if height > 0 else 1.0
+            )
+        self.item_transform_changed.emit(
+            self._selected_transform_item, self.transform_values()
+        )
 
-    def _make_spinbox(self, minimum: float, maximum: float, value: float) -> QDoubleSpinBox:
+    def _make_spinbox(
+        self, minimum: float, maximum: float, value: float
+    ) -> QDoubleSpinBox:
         spinbox = QDoubleSpinBox()
         spinbox.setRange(minimum, maximum)
         spinbox.setDecimals(3)
@@ -270,12 +551,28 @@ class ArtboardPanel(QWidget):
         spinbox.setValue(value)
         return spinbox
 
+    def _make_int_spinbox(self, minimum: int, maximum: int, value: int) -> QSpinBox:
+        spinbox = QSpinBox()
+        spinbox.setRange(minimum, maximum)
+        spinbox.setSingleStep(1)
+        spinbox.setKeyboardTracking(False)
+        spinbox.setValue(value)
+        return spinbox
+
     def _emit_artboard_changed(self) -> None:
         if not self._updating:
             self.artboard_changed.emit(self.artboard())
 
+    def _emit_slot_layout_changed(self) -> None:
+        if not self._updating:
+            self.slot_layout_changed.emit(self.slot_layout())
+
     def _save_default(self) -> None:
-        save_default_artboard(self.artboard())
+        if self._profile_kind == NestProfileKind.JIG:
+            save_default_slot_layout(self.slot_layout())
+            save_default_slot_mask_path(self.jig_mask_path())
+        else:
+            save_default_artboard(self.artboard())
 
     def export_settings(self) -> ExportSettings:
         return ExportSettings(
@@ -309,6 +606,7 @@ class ArtboardPanel(QWidget):
 
         title = QLabel("Export Folders")
         title.setObjectName("sectionTitle")
+        self._export_settings_title = title
         self._print_export_input = QLineEdit(str(settings.print_directory))
         self._cut_export_input = QLineEdit(str(settings.cut_directory))
         self._temp_export_input = QLineEdit(str(settings.local_temp_directory))
@@ -316,29 +614,37 @@ class ArtboardPanel(QWidget):
         self._cut_export_input.setPlaceholderText("Cut PDF folder")
         self._temp_export_input.setPlaceholderText("Local temp folder")
 
+        self._print_export_row = self._folder_row("Print", self._print_export_input)
+        self._cut_export_row = self._folder_row("Cut", self._cut_export_input)
+        self._temp_export_row = self._folder_row("Temp", self._temp_export_input)
         layout.addWidget(title)
-        layout.addLayout(self._folder_row("Print", self._print_export_input))
-        layout.addLayout(self._folder_row("Cut", self._cut_export_input))
-        layout.addLayout(self._folder_row("Temp", self._temp_export_input))
+        layout.addWidget(self._print_export_row)
+        layout.addWidget(self._cut_export_row)
+        layout.addWidget(self._temp_export_row)
 
         save_button = QPushButton("Save Export Settings")
         save_button.clicked.connect(self._save_export_settings)
         layout.addWidget(save_button)
         return section
 
-    def _folder_row(self, label: str, line_edit: QLineEdit) -> QHBoxLayout:
-        row = QHBoxLayout()
+    def _folder_row(self, label: str, line_edit: QLineEdit) -> QWidget:
+        widget = QWidget()
+        row = QHBoxLayout(widget)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
         row.addWidget(QLabel(label))
         row.addWidget(line_edit, 1)
         browse = QPushButton("Browse")
-        browse.clicked.connect(lambda _checked=False, target=line_edit: self._browse_for_folder(target))
+        browse.clicked.connect(
+            lambda _checked=False, target=line_edit: self._browse_for_folder(target)
+        )
         row.addWidget(browse)
-        return row
+        return widget
 
     def _browse_for_folder(self, target: QLineEdit) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Choose Export Folder", target.text())
+        folder = QFileDialog.getExistingDirectory(
+            self, "Choose Export Folder", target.text()
+        )
         if folder:
             target.setText(folder)
 
@@ -403,8 +709,12 @@ class ArtboardPanel(QWidget):
         header.setContentsMargins(0, 0, 0, 0)
         title = QLabel("Sheets")
         title.setObjectName("sectionTitle")
+        self._sheet_export_title = title
         export_all = QPushButton("Export All")
-        export_all.setToolTip("Exports every pending print and cut PDF using the configured folders.")
+        self._sheet_export_all_button = export_all
+        export_all.setToolTip(
+            "Exports every pending print and cut PDF using the configured folders."
+        )
         export_all.clicked.connect(self.export_all_requested.emit)
         header.addWidget(title)
         header.addStretch(1)
@@ -443,7 +753,13 @@ class ArtboardPanel(QWidget):
         thumbnail.setObjectName("sheetThumb")
         thumbnail.setFixedSize(96, 72)
         thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        preview = sheet.thumbnail if sheet.thumbnail is not None else self._sheet_thumbnail(sheet.ready, sheet.print_exported, sheet.cut_exported)
+        preview = (
+            sheet.thumbnail
+            if sheet.thumbnail is not None
+            else self._sheet_thumbnail(
+                sheet.ready, sheet.print_exported, sheet.cut_exported
+            )
+        )
         thumbnail.setPixmap(preview)
 
         content = QVBoxLayout()
@@ -453,7 +769,11 @@ class ArtboardPanel(QWidget):
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
         name = f"Sheet {sheet.sheet_index + 1}"
-        meta = "Empty" if sheet.item_count == 0 else f"{sheet.item_count} item{'s' if sheet.item_count != 1 else ''}"
+        meta = (
+            "Empty"
+            if sheet.item_count == 0
+            else f"{sheet.item_count} item{'s' if sheet.item_count != 1 else ''}"
+        )
         name_label = QLabel(name)
         name_label.setObjectName("sheetName")
         meta_label = QLabel(meta)
@@ -462,20 +782,26 @@ class ArtboardPanel(QWidget):
         top.addStretch(1)
         top.addWidget(meta_label)
 
-        states = QGridLayout()
-        states.setContentsMargins(0, 0, 0, 0)
-        states.setHorizontalSpacing(8)
-        states.setVerticalSpacing(2)
-        for column, (label, ok) in enumerate(
-            [
+        is_jig = self._profile_kind == NestProfileKind.JIG
+        state_values = (
+            [("Ready", sheet.ready), ("Jig PDF", sheet.print_exported)]
+            if is_jig
+            else [
                 ("Ready", sheet.ready),
                 ("Print", sheet.print_exported),
                 ("Cut", sheet.cut_exported),
             ]
-        ):
-            dot = QLabel("●")
-            dot.setProperty("stateDot", "ready" if ok else "warning" if label == "Ready" else "pending")
-            dot.setText("*")
+        )
+        states = QGridLayout()
+        states.setContentsMargins(0, 0, 0, 0)
+        states.setHorizontalSpacing(8)
+        states.setVerticalSpacing(2)
+        for column, (label, ok) in enumerate(state_values):
+            dot = QLabel("*")
+            dot.setProperty(
+                "stateDot",
+                "ready" if ok else "warning" if label == "Ready" else "pending",
+            )
             dot.setToolTip(f"{label}: {'done' if ok else 'pending'}")
             text = QLabel(label)
             text.setObjectName("sheetMeta")
@@ -484,17 +810,35 @@ class ArtboardPanel(QWidget):
 
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
-        print_button = QPushButton("Export Print")
-        cut_button = QPushButton("Export Cut")
-        for button in (print_button, cut_button):
-            button.setObjectName("smallExportButton")
-            button.setToolTip("Exports this sheet using the configured folders.")
-            button.setEnabled(sheet.item_count > 0)
-        print_button.clicked.connect(lambda _checked=False, index=sheet.sheet_index: self.export_sheet_requested.emit(index, "print"))
-        cut_button.clicked.connect(lambda _checked=False, index=sheet.sheet_index: self.export_sheet_requested.emit(index, "cut"))
-        actions.addWidget(print_button)
-        actions.addWidget(cut_button)
-
+        if is_jig:
+            jig_button = QPushButton("Export Jig")
+            jig_button.setObjectName("smallExportButton")
+            jig_button.setToolTip(
+                "Exports this jig sheet using the configured print folder."
+            )
+            jig_button.setEnabled(sheet.item_count > 0)
+            jig_button.clicked.connect(
+                lambda _checked=False,
+                index=sheet.sheet_index: self.export_sheet_requested.emit(index, "jig")
+            )
+            actions.addWidget(jig_button)
+        else:
+            print_button = QPushButton("Export Print")
+            cut_button = QPushButton("Export Cut")
+            for button in (print_button, cut_button):
+                button.setObjectName("smallExportButton")
+                button.setToolTip("Exports this sheet using the configured folders.")
+                button.setEnabled(sheet.item_count > 0)
+            print_button.clicked.connect(
+                lambda _checked=False,
+                index=sheet.sheet_index: self.export_sheet_requested.emit(index, "print")
+            )
+            cut_button.clicked.connect(
+                lambda _checked=False,
+                index=sheet.sheet_index: self.export_sheet_requested.emit(index, "cut")
+            )
+            actions.addWidget(print_button)
+            actions.addWidget(cut_button)
         content.addLayout(top)
         content.addLayout(states)
         content.addLayout(actions)
@@ -503,7 +847,9 @@ class ArtboardPanel(QWidget):
         layout.addLayout(content, 1)
         return row
 
-    def _sheet_thumbnail(self, ready: bool, print_exported: bool, cut_exported: bool) -> QPixmap:
+    def _sheet_thumbnail(
+        self, ready: bool, print_exported: bool, cut_exported: bool
+    ) -> QPixmap:
         pixmap = QPixmap(90, 66)
         pixmap.fill(QColor("#eef1f4"))
 

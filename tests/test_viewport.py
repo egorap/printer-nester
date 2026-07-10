@@ -22,13 +22,14 @@ import fitz
 from PIL import Image
 import pytest
 
-from printer_nester.core.artboard import ArtboardSettings
+from printer_nester.core.artboard import ArtboardSettings, SlotLayoutSettings
 from printer_nester.core.artwork_import import ArtworkKind, read_artwork_import_info
 from printer_nester.core.auto_nest import classify_preset_size
 from printer_nester.core.cut_paths import CutRect, cut_segments_for_rects
 from printer_nester.core.grid_nest import GridItem, group_grid_placements
 from printer_nester.core.item_transform import ItemTransform
 from printer_nester.core.image_import import DEFAULT_IMAGE_DPI, read_image_import_info
+from printer_nester.core.nest_profile import NestProfileKind
 from printer_nester.core.markers import (
     MARKER_DIAMETER_MM,
     MAX_MARKER_GAP_IN,
@@ -36,8 +37,11 @@ from printer_nester.core.markers import (
 )
 from printer_nester.core.pdf_export import (
     EXPORT_MARKER_PADDING_IN,
+    ExportSheet,
     ExportKind,
     ExportSettings,
+    export_jig_layout_pdf,
+    export_jig_mockup_pdf,
     export_sheet_pdf,
 )
 from printer_nester.core.space_nest import SpaceItem, SpaceRect, fill_space_placements
@@ -48,6 +52,14 @@ from printer_nester.ui.qt_settings import (
     configure_qt_image_limits,
 )
 from printer_nester.ui.ruler import RulerWidget
+from printer_nester.ui.viewport import (
+    AUTO_NEST_SHEET_COLUMNS,
+    AUTO_NEST_SHEET_GAP_IN,
+    ITEM_MARKER_GAP_IN,
+    MIN_VIEWPORT_ZOOM,
+    PrintViewport,
+    _rects_overlap_with_area,
+)
 
 
 def _item_polygon_points(item):  # type: ignore[no-untyped-def]
@@ -77,16 +89,6 @@ def _corner_dot_products(points):  # type: ignore[no-untyped-def]
         second_dy = second.y() - corner.y()
         dots.append(first_dx * second_dx + first_dy * second_dy)
     return dots
-
-
-from printer_nester.ui.viewport import (
-    AUTO_NEST_SHEET_COLUMNS,
-    AUTO_NEST_SHEET_GAP_IN,
-    ITEM_MARKER_GAP_IN,
-    MIN_VIEWPORT_ZOOM,
-    PrintViewport,
-    _rects_overlap_with_area,
-)
 
 
 def test_wheel_event_zooms_viewport() -> None:
@@ -1608,7 +1610,9 @@ def test_pdf_import_reads_page_size_and_preview(tmp_path) -> None:
     assert info.kind == ArtworkKind.PDF
     assert info.width_points == 144
     assert info.height_points == 72
-    assert info.preview_png is not None
+    assert info.preview_pixels is not None
+    assert info.preview_width_px > 0
+    assert info.preview_height_px > 0
     assert info.width_in == 2
     assert info.height_in == 1
 
@@ -1627,8 +1631,10 @@ def test_add_pdf_file_uses_page_size_for_scene_size(tmp_path) -> None:
     assert item is not None
     assert item.data(5) == ArtworkKind.PDF.value
     assert item.data(6) == 0
-    assert round(item.transform().m11(), 3) == 0.5
-    assert round(item.transform().m22(), 3) == 0.5
+    assert round(item.transform().m11(), 3) == 0.24
+    assert round(item.transform().m22(), 3) == 0.24
+    assert item.sceneBoundingRect().width() == pytest.approx(144, abs=0.25)
+    assert item.sceneBoundingRect().height() == pytest.approx(72, abs=0.25)
     assert round(item.data(3), 3) == 2
     assert round(item.data(4), 3) == 1
 
@@ -1778,6 +1784,361 @@ def test_viewport_clamps_margin_to_artboard() -> None:
     assert viewport._margin_item.rect().isEmpty()
 
 
+def test_viewport_slot_layout_resizes_artboard_and_reports_slot_rects() -> None:
+    QApplication.instance() or QApplication([])
+    viewport = PrintViewport()
+    slot_layout = SlotLayoutSettings(
+        slot_width_in=2,
+        slot_height_in=3,
+        slot_margin_in=0.25,
+        horizontal_spacing_in=0.5,
+        vertical_spacing_in=1,
+        columns=2,
+        rows=3,
+        outside_margin_in=0.75,
+    )
+
+    viewport.set_slot_layout(slot_layout)
+
+    settings = viewport.artboard_settings()
+    assert settings.width_in == pytest.approx(6.0)
+    assert settings.height_in == pytest.approx(12.5)
+    assert settings.margin_in == pytest.approx(0.75)
+    assert viewport._slot_overlay_item.isVisible()
+
+    rects = viewport.slot_rects()
+    assert len(rects) == 6
+    sheet_rect = viewport._sheet_item.rect()
+    first = rects[0]
+    second = rects[1]
+    fourth = rects[3]
+
+    assert first.left() == pytest.approx(sheet_rect.left() + 0.75 * 72)
+    assert first.top() == pytest.approx(sheet_rect.top() + 0.75 * 72)
+    assert first.width() == pytest.approx(2 * 72)
+    assert first.height() == pytest.approx(3 * 72)
+    assert second.left() - first.left() == pytest.approx(2.5 * 72)
+    assert fourth.top() - second.top() == pytest.approx(4 * 72)
+
+
+def test_jig_layout_imported_items_are_not_movable(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "jig-not-movable.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(100, 100))
+    viewport = PrintViewport()
+    viewport.set_slot_layout(
+        SlotLayoutSettings(
+            slot_width_in=2.0,
+            slot_height_in=2.0,
+            slot_margin_in=0.0,
+            horizontal_spacing_in=0.25,
+            vertical_spacing_in=0.25,
+            columns=2,
+            rows=1,
+            outside_margin_in=0.5,
+        )
+    )
+
+    item = viewport.add_image_file(image_path, QPointF(0, 0))
+
+    assert item is not None
+    assert item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+    assert not item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+
+
+def test_switching_to_jig_layout_makes_existing_items_not_movable(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "sheet-to-jig-not-movable.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(100, 100))
+    viewport = PrintViewport()
+    item = viewport.add_image_file(image_path, QPointF(0, 0))
+    assert item is not None
+    assert item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+
+    viewport.set_slot_layout(
+        SlotLayoutSettings(
+            slot_width_in=2.0,
+            slot_height_in=2.0,
+            slot_margin_in=0.0,
+            horizontal_spacing_in=0.25,
+            vertical_spacing_in=0.25,
+            columns=2,
+            rows=1,
+            outside_margin_in=0.5,
+        )
+    )
+
+    assert not item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+def test_jig_layout_does_not_draw_markers_or_cut_paths(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "jig-no-markers.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(100, 100))
+    slot_layout = SlotLayoutSettings(
+        slot_width_in=2.0,
+        slot_height_in=2.0,
+        slot_margin_in=0.0,
+        horizontal_spacing_in=0.25,
+        vertical_spacing_in=0.25,
+        columns=2,
+        rows=1,
+        outside_margin_in=0.5,
+    )
+    viewport = PrintViewport()
+    viewport.set_slot_layout(slot_layout)
+
+    item = viewport.add_image_file(image_path, QPointF(0, 0))
+    viewport.refresh_cut_paths()
+    viewport._refresh_sheet_markers()
+    sheet = viewport.export_sheet_data(0)
+
+    assert item is not None
+    assert viewport._cut_path_items == []
+    assert viewport._marker_items == []
+    assert viewport.cut_segments() == []
+    assert sheet.cut_segments == []
+    assert sheet.markers == []
+
+
+def test_jig_imports_center_items_in_slots_and_spills_to_next_sheet(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "jig-item.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(100, 100))
+    slot_layout = SlotLayoutSettings(
+        slot_width_in=2.0,
+        slot_height_in=2.0,
+        slot_margin_in=0.1,
+        horizontal_spacing_in=0.25,
+        vertical_spacing_in=0.25,
+        columns=2,
+        rows=1,
+        outside_margin_in=0.5,
+    )
+    viewport = PrintViewport()
+    viewport.set_slot_layout(slot_layout)
+
+    first = viewport.add_image_file(image_path, QPointF(999, 999))
+    second = viewport.add_image_file(image_path, QPointF(999, 999))
+    third = viewport.add_image_file(image_path, QPointF(999, 999))
+
+    assert first is not None
+    assert second is not None
+    assert third is not None
+    assert first.pos() == viewport.slot_rects(0)[0].center()
+    assert second.pos() == viewport.slot_rects(0)[1].center()
+    assert third.pos() == viewport.slot_rects(1)[0].center()
+    assert viewport._sheet_count() == 3
+
+
+def test_jig_slot_mask_clips_preview_and_export(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "jig-mask-art.png"
+    mask_path = tmp_path / "jig-mask.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(
+        image_path, dpi=(100, 100)
+    )
+    mask = Image.new("L", (100, 100), 255)
+    for x in range(50):
+        for y in range(100):
+            mask.putpixel((x, y), 0)
+    mask.save(mask_path)
+
+    slot_layout = SlotLayoutSettings(
+        slot_width_in=1.0,
+        slot_height_in=1.0,
+        slot_margin_in=0.0,
+        horizontal_spacing_in=0.0,
+        vertical_spacing_in=0.0,
+        columns=1,
+        rows=1,
+        outside_margin_in=0.0,
+    )
+    viewport = PrintViewport()
+    viewport.set_slot_layout(slot_layout)
+
+    item = viewport.add_image_file(image_path, QPointF(0, 0))
+    assert item is not None
+    assert viewport.set_slot_mask_path(mask_path)
+
+    masked_image = item.pixmap().toImage().convertToFormat(QImage.Format.Format_ARGB32)
+    assert masked_image.pixelColor(25, 50).alpha() == 255
+    assert masked_image.pixelColor(75, 50).alpha() == 0
+
+    sheet = viewport.export_sheet_data(0)
+    assert len(sheet.artworks) == 1
+    assert sheet.artworks[0].kind == ArtworkKind.RASTER
+    assert sheet.artworks[0].image_bytes is not None
+
+    viewport.set_jig_mask_preview_enabled(False)
+    unmasked_image = item.pixmap().toImage().convertToFormat(QImage.Format.Format_ARGB32)
+    assert unmasked_image.pixelColor(75, 50).alpha() == 255
+
+
+def test_jig_white_layer_preview_marks_opaque_pixels_including_white(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "white-layer-art.png"
+    image = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+    for x in range(50):
+        for y in range(100):
+            image.putpixel((x, y), (255, 0, 0, 255))
+    for x in range(50, 75):
+        for y in range(100):
+            image.putpixel((x, y), (255, 255, 255, 255))
+    image.save(image_path, dpi=(100, 100))
+
+    viewport = PrintViewport()
+    viewport.set_slot_layout(
+        SlotLayoutSettings(
+            slot_width_in=1.0,
+            slot_height_in=1.0,
+            slot_margin_in=0.0,
+            horizontal_spacing_in=0.0,
+            vertical_spacing_in=0.0,
+            columns=1,
+            rows=1,
+            outside_margin_in=0.0,
+        )
+    )
+
+    item = viewport.add_image_file(image_path, QPointF(0, 0))
+    assert item is not None
+    viewport.set_white_layer_preview_enabled(True)
+
+    assert viewport.image_items() == [item]
+    assert len(viewport._white_layer_preview_items) == 1
+    overlay_image = viewport._white_layer_preview_items[0].pixmap().toImage()
+    overlay_image = overlay_image.convertToFormat(QImage.Format.Format_ARGB32)
+    assert overlay_image.pixelColor(25, 50).alpha() > 0
+    assert overlay_image.pixelColor(60, 50).alpha() > 0
+    assert overlay_image.pixelColor(90, 50).alpha() == 0
+
+    visible_colors = [
+        overlay_image.pixelColor(x, y)
+        for x in range(75)
+        for y in range(100)
+        if overlay_image.pixelColor(x, y).alpha() > 0
+    ]
+    assert any(
+        color.red() > 150 and color.green() < 80 and color.blue() < 80
+        for color in visible_colors
+    )
+    assert any(
+        color.red() < 40 and color.green() < 40 and color.blue() < 40
+        for color in visible_colors
+    )
+
+
+def test_jig_white_layer_preview_respects_slot_mask(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "white-layer-mask-art.png"
+    mask_path = tmp_path / "white-layer-mask.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(
+        image_path, dpi=(100, 100)
+    )
+    mask = Image.new("L", (100, 100), 255)
+    for x in range(50):
+        for y in range(100):
+            mask.putpixel((x, y), 0)
+    mask.save(mask_path)
+
+    viewport = PrintViewport()
+    viewport.set_slot_layout(
+        SlotLayoutSettings(
+            slot_width_in=1.0,
+            slot_height_in=1.0,
+            slot_margin_in=0.0,
+            horizontal_spacing_in=0.0,
+            vertical_spacing_in=0.0,
+            columns=1,
+            rows=1,
+            outside_margin_in=0.0,
+        )
+    )
+
+    item = viewport.add_image_file(image_path, QPointF(0, 0))
+    assert item is not None
+    viewport.set_white_layer_preview_enabled(True)
+    assert viewport.set_slot_mask_path(mask_path)
+
+    assert len(viewport._white_layer_preview_items) == 1
+    overlay_image = viewport._white_layer_preview_items[0].pixmap().toImage()
+    overlay_image = overlay_image.convertToFormat(QImage.Format.Format_ARGB32)
+    assert overlay_image.pixelColor(25, 50).alpha() > 0
+    assert overlay_image.pixelColor(75, 50).alpha() == 0
+
+    assert viewport.set_slot_mask_path(None)
+    overlay_image = viewport._white_layer_preview_items[0].pixmap().toImage()
+    overlay_image = overlay_image.convertToFormat(QImage.Format.Format_ARGB32)
+    assert overlay_image.pixelColor(25, 50).alpha() > 0
+    assert overlay_image.pixelColor(75, 50).alpha() > 0
+
+
+def test_jig_white_layer_preview_marks_white_pdf_artwork(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    pdf_path = tmp_path / "white-vector.pdf"
+    document = fitz.open()
+    page = document.new_page(width=72, height=72)
+    page.draw_rect(fitz.Rect(0, 0, 36, 72), color=None, fill=(1, 1, 1))
+    document.save(pdf_path)
+    document.close()
+
+    viewport = PrintViewport()
+    viewport.set_slot_layout(
+        SlotLayoutSettings(
+            slot_width_in=1.0,
+            slot_height_in=1.0,
+            slot_margin_in=0.0,
+            horizontal_spacing_in=0.0,
+            vertical_spacing_in=0.0,
+            columns=1,
+            rows=1,
+            outside_margin_in=0.0,
+        )
+    )
+
+    item = viewport.add_artwork_file(pdf_path, QPointF(0, 0))
+    assert item is not None
+    viewport.set_white_layer_preview_enabled(True)
+
+    assert len(viewport._white_layer_preview_items) == 1
+    overlay_image = viewport._white_layer_preview_items[0].pixmap().toImage()
+    overlay_image = overlay_image.convertToFormat(QImage.Format.Format_ARGB32)
+    assert overlay_image.pixelColor(75, 150).alpha() > 0
+    assert overlay_image.pixelColor(225, 150).alpha() == 0
+
+
+def test_artboard_panel_switches_to_slot_layout_controls_and_emits_settings() -> None:
+    QApplication.instance() or QApplication([])
+    slot_layout = SlotLayoutSettings(
+        slot_width_in=2,
+        slot_height_in=3,
+        slot_margin_in=0.125,
+        horizontal_spacing_in=0.5,
+        vertical_spacing_in=0.75,
+        columns=2,
+        rows=2,
+        outside_margin_in=0.5,
+    )
+    panel = ArtboardPanel(
+        ArtboardSettings(width_in=48, height_in=96, margin_in=0.25), slot_layout
+    )
+    changes = []
+    panel.slot_layout_changed.connect(changes.append)
+
+    assert not panel._sheet_artboard_section.isHidden()
+    assert panel._slot_layout_section.isHidden()
+
+    panel.set_profile_kind(NestProfileKind.JIG)
+    panel._slot_columns_input.setValue(4)
+
+    assert panel._sheet_artboard_section.isHidden()
+    assert not panel._slot_layout_section.isHidden()
+    assert panel._transform_section.isHidden()
+    assert panel._export_settings_title.text() == "Print Export"
+    assert not panel._print_export_row.isHidden()
+    assert panel._cut_export_row.isHidden()
+    assert panel._temp_export_row.isHidden()
+    assert panel._title.text() == "Jig Slots"
+
 def test_artboard_panel_emits_changed_settings() -> None:
     QApplication.instance() or QApplication([])
     panel = ArtboardPanel(ArtboardSettings(width_in=48, height_in=96, margin_in=0.25))
@@ -1868,6 +2229,69 @@ def test_artboard_panel_updates_sheet_export_ui() -> None:
     assert all(not thumbnail.pixmap().isNull() for thumbnail in thumbnails)
     assert "Export Folders" in labels
 
+def test_artboard_panel_updates_jig_sheet_export_ui() -> None:
+    QApplication.instance() or QApplication([])
+    panel = ArtboardPanel(ArtboardSettings(width_in=48, height_in=96, margin_in=0.25))
+    panel.set_profile_kind(NestProfileKind.JIG)
+    panel.set_sheet_rows(
+        [
+            SheetPanelRow(0, 3, True, True, False),
+            SheetPanelRow(1, 0, True, False, False),
+        ]
+    )
+
+    labels = [label.text() for label in panel.findChildren(QLabel)]
+    buttons = [button.text() for button in panel.findChildren(QPushButton)]
+
+    assert "Jig Sheets" in labels
+    assert "Jig PDF" in labels
+    assert "Export All" in buttons
+    assert buttons.count("Export Jig") == 2
+    assert "Export Print" not in buttons
+    assert "Export Cut" not in buttons
+    assert "Export Jig Layout PDF" not in buttons
+
+def test_artboard_panel_saves_jig_mask_path_with_default(monkeypatch, tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    panel = ArtboardPanel(ArtboardSettings(width_in=48, height_in=96, margin_in=0.25))
+    mask_path = tmp_path / "default-mask.png"
+    saved = {}
+    monkeypatch.setattr(
+        "printer_nester.ui.artboard_panel.save_default_slot_layout",
+        lambda layout: saved.setdefault("layout", layout),
+    )
+    monkeypatch.setattr(
+        "printer_nester.ui.artboard_panel.save_default_slot_mask_path",
+        lambda path: saved.setdefault("mask", path),
+    )
+    panel.set_profile_kind(NestProfileKind.JIG)
+    panel.set_jig_mask_path(mask_path)
+
+    panel._save_default()
+
+    assert saved["layout"] == panel.slot_layout()
+    assert saved["mask"] == mask_path
+
+    saved.clear()
+    panel.set_jig_mask_path(None)
+    panel._save_default()
+
+    assert saved["mask"] is None
+
+def test_artboard_panel_emits_jig_mockup_export_request() -> None:
+    QApplication.instance() or QApplication([])
+    panel = ArtboardPanel(ArtboardSettings(width_in=48, height_in=96, margin_in=0.25))
+    emitted = []
+    panel.export_jig_mockup_requested.connect(lambda: emitted.append(True))
+    button = next(
+        button
+        for button in panel.findChildren(QPushButton)
+        if button.text() == "Export Jig Mockup PDF"
+    )
+
+    button.click()
+
+    assert emitted == [True]
 
 def test_artboard_panel_exports_settings_from_inputs() -> None:
     QApplication.instance() or QApplication([])
@@ -2003,6 +2427,145 @@ def test_export_sheet_pdf_trims_to_half_inch_outside_markers() -> None:
         assert document[0].rect.width == pytest.approx(expected_width)
         assert document[0].rect.height == pytest.approx(expected_height)
 
+
+def test_export_jig_layout_pdf_writes_color_and_rdg_white_channels(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "jig-white-art.png"
+    image = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+    for x in range(10, 60):
+        for y in range(10, 90):
+            image.putpixel((x, y), (255, 255, 255, 255))
+    for x in range(60, 90):
+        for y in range(10, 90):
+            image.putpixel((x, y), (255, 0, 0, 255))
+    image.save(image_path, dpi=(100, 100))
+
+    viewport = PrintViewport()
+    viewport.set_slot_layout(
+        SlotLayoutSettings(
+            slot_width_in=1.0,
+            slot_height_in=1.0,
+            slot_margin_in=0.0,
+            horizontal_spacing_in=0.0,
+            vertical_spacing_in=0.0,
+            columns=1,
+            rows=1,
+            outside_margin_in=0.0,
+        )
+    )
+    item = viewport.add_image_file(image_path, QPointF(0, 0))
+    assert item is not None
+    result = export_jig_layout_pdf(
+        [viewport.export_sheet_data(0)],
+        tmp_path / "jig-layout.pdf",
+        tmp_path / "temp",
+        dpi=72,
+    )
+
+    with fitz.open(result.path) as document:
+        assert document.page_count == 1
+        page = document[0]
+        content = b"\n".join(
+            document.xref_stream(xref) for xref in page.get_contents()
+        ).decode("latin1")
+        all_objects = "\n".join(
+            document.xref_object(xref, compressed=False)
+            for xref in range(1, document.xref_length())
+        )
+        assert "/MultiChannelImage" in content
+        assert "/SpotImage" in content
+        assert "/MainChannelImage" in content
+        assert "/GS0 gs" in content
+        assert "RDG_WHITE" in all_objects
+        assert "/ExtGState" in all_objects
+        assert "/SpotChannels" in all_objects
+        assert "/PieceInfo" in document.xref_object(page.xref, compressed=False)
+        images = page.get_images(full=True)
+        assert any(
+            image[4] == 8 and image[5] == "Indexed" and image[7] == "Im0"
+            for image in images
+        )
+        assert any(image[5] == "DeviceRGB" and image[7] == "Im1" for image in images)
+        assert page.get_drawings() == []
+
+def test_export_jig_layout_pdf_never_overwrites_existing_file(tmp_path) -> None:
+    sheet = ExportSheet(
+        sheet_index=0,
+        width_points=72,
+        height_points=72,
+        artworks=[],
+        cut_segments=[],
+        markers=[],
+    )
+    destination = tmp_path / "jig-layout.pdf"
+    existing_bytes = b"existing jig layout must stay untouched"
+    destination.write_bytes(existing_bytes)
+
+    result = export_jig_layout_pdf([sheet], destination, tmp_path / "temp", dpi=72)
+
+    assert result.path == tmp_path / "jig-layout_001.pdf"
+    assert destination.read_bytes() == existing_bytes
+    with fitz.open(result.path) as document:
+        assert document.page_count == 1
+
+def test_export_jig_mockup_pdf_writes_vector_artboard_and_slots() -> None:
+    layout = SlotLayoutSettings(
+        slot_width_in=2,
+        slot_height_in=3,
+        slot_margin_in=0,
+        horizontal_spacing_in=0.5,
+        vertical_spacing_in=0.75,
+        columns=2,
+        rows=2,
+        outside_margin_in=0.5,
+    )
+    output_dir = Path("test_outputs") / f"jig_mockup_export_{uuid4().hex}"
+    result = export_jig_mockup_pdf(
+        layout,
+        output_dir / "mockup",
+        output_dir / "temp",
+    )
+
+    assert result.path == output_dir / "mockup.pdf"
+    with fitz.open(result.path) as document:
+        assert document.page_count == 1
+        page = document[0]
+        assert page.rect.width == pytest.approx(layout.total_width_in * 72)
+        assert page.rect.height == pytest.approx(layout.total_height_in * 72)
+        assert page.get_images() == []
+        layer_names = {layer["name"] for layer in document.get_ocgs().values()}
+        assert layer_names == {
+            "Artboard",
+            "Outside Margin",
+            "Slots",
+            "Slot Centers",
+        }
+        assert len(page.get_drawings()) >= 1 + 1 + layout.columns * layout.rows * 3
+
+
+def test_export_jig_mockup_pdf_never_overwrites_existing_file() -> None:
+    layout = SlotLayoutSettings(
+        slot_width_in=2,
+        slot_height_in=3,
+        slot_margin_in=0,
+        horizontal_spacing_in=0.5,
+        vertical_spacing_in=0.75,
+        columns=1,
+        rows=1,
+        outside_margin_in=0.5,
+    )
+    output_dir = Path("test_outputs") / f"jig_mockup_no_overwrite_{uuid4().hex}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    destination = output_dir / "mockup.pdf"
+    existing_bytes = b"existing mockup must stay untouched"
+    destination.write_bytes(existing_bytes)
+
+    result = export_jig_mockup_pdf(layout, destination, output_dir / "temp")
+
+    assert result.path == output_dir / "mockup_001.pdf"
+    assert destination.read_bytes() == existing_bytes
+    with fitz.open(result.path) as document:
+        assert document.page_count == 1
 
 def test_viewport_reports_sheet_item_summary() -> None:
     QApplication.instance() or QApplication([])

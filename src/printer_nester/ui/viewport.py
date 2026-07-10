@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 import fitz
-from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QDragEnterEvent,
@@ -16,6 +16,7 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPainter,
     QPen,
+    QImage,
     QPixmap,
     QTransform,
     QWheelEvent,
@@ -31,7 +32,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtWidgets import QGraphicsEllipseItem
 from PySide6.QtWidgets import QApplication, QProgressDialog
 
-from printer_nester.core.artboard import DEFAULT_ARTBOARD, ArtboardSettings
+from printer_nester.core.artboard import (
+    DEFAULT_ARTBOARD,
+    ArtboardSettings,
+    SlotLayoutSettings,
+)
 from printer_nester.core.artwork_import import (
     SUPPORTED_ARTWORK_EXTENSIONS,
     ArtworkKind,
@@ -78,6 +83,9 @@ ITEM_MARKER_GAP_IN = 0.5
 MIN_VIEWPORT_ZOOM = 0.01
 MAX_VIEWPORT_ZOOM = 8.0
 ITEM_ROTATION_DATA_KEY = 12
+IMAGE_ITEM_ORDER_DATA_KEY = 13
+AUXILIARY_PIXMAP_DATA_KEY = 98
+WHITE_LAYER_PREVIEW_DATA_VALUE = "white-layer-preview"
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +108,73 @@ DEFAULT_SHEET = SheetPreset(
 )
 
 
+def _slot_rects_for_sheet(
+    slot_layout: SlotLayoutSettings | None, sheet_rect: QRectF
+) -> list[QRectF]:
+    if slot_layout is None:
+        return []
+
+    width = max(0.001, slot_layout.slot_width_in) * POINTS_PER_INCH
+    height = max(0.001, slot_layout.slot_height_in) * POINTS_PER_INCH
+    h_spacing = max(0.0, slot_layout.horizontal_spacing_in) * POINTS_PER_INCH
+    v_spacing = max(0.0, slot_layout.vertical_spacing_in) * POINTS_PER_INCH
+    columns = max(1, int(slot_layout.columns))
+    rows = max(1, int(slot_layout.rows))
+    outside = max(0.0, slot_layout.outside_margin_in) * POINTS_PER_INCH
+    origin_x = sheet_rect.left() + outside
+    origin_y = sheet_rect.top() + outside
+
+    rects: list[QRectF] = []
+    for row in range(rows):
+        y = origin_y + row * (height + v_spacing)
+        for column in range(columns):
+            x = origin_x + column * (width + h_spacing)
+            rects.append(QRectF(x, y, width, height))
+    return rects
+
+
+class SlotOverlayItem(QGraphicsItem):
+    def __init__(
+        self,
+        slot_layout: SlotLayoutSettings | None,
+        sheet_rect: QRectF,
+    ) -> None:
+        super().__init__()
+        self._slot_layout = slot_layout
+        self._sheet_rect = QRectF(sheet_rect)
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    def set_layout(
+        self, slot_layout: SlotLayoutSettings | None, sheet_rect: QRectF
+    ) -> None:
+        if self._sheet_rect != sheet_rect:
+            self.prepareGeometryChange()
+            self._sheet_rect = QRectF(sheet_rect)
+        self._slot_layout = slot_layout
+        self.setVisible(slot_layout is not None)
+        self.update()
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(self._sheet_rect)
+
+    def slot_rects(self) -> list[QRectF]:
+        return _slot_rects_for_sheet(self._slot_layout, self._sheet_rect)
+
+    def paint(self, painter: QPainter, _option, _widget=None) -> None:  # type: ignore[no-untyped-def]
+        if self._slot_layout is None:
+            return
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        slot_pen = QPen(QColor("#0284c7"), 1.5, Qt.PenStyle.SolidLine)
+        slot_pen.setCosmetic(True)
+        painter.setPen(slot_pen)
+        painter.setBrush(QColor(14, 165, 233, 22))
+        for rect in self.slot_rects():
+            painter.drawRect(rect)
+        painter.restore()
+
+
 class PrintViewport(QGraphicsView):
     zoom_changed = Signal(int)
     viewport_changed = Signal()
@@ -113,10 +188,12 @@ class PrintViewport(QGraphicsView):
         self,
         sheet: SheetPreset = DEFAULT_SHEET,
         margin_in: float = DEFAULT_ARTBOARD.margin_in,
+        slot_layout: SlotLayoutSettings | None = None,
     ) -> None:
         super().__init__()
 
         self._sheet = sheet
+        self._slot_layout = slot_layout
         self._margin_in = margin_in
         self._zoom = 1.0
         self._is_panning = False
@@ -128,6 +205,18 @@ class PrintViewport(QGraphicsView):
         self._area_select_initial_selection: set[QGraphicsPixmapItem] = set()
         self._area_select_item: QGraphicsRectItem | None = None
         self._fast_view_active = False
+        self._jig_mask_path: Path | None = None
+        self._jig_mask_image = QImage()
+        self._jig_mask_preview_enabled = True
+        self._item_original_pixmaps: dict[QGraphicsPixmapItem, QPixmap] = {}
+        self._next_image_item_order = 0
+        self._jig_mask_revision = 0
+        self._item_masked_pixmap_cache: dict[
+            QGraphicsPixmapItem, tuple[tuple[object, ...], QPixmap]
+        ] = {}
+        self._white_layer_preview_enabled = False
+        self._white_layer_preview_items: list[QGraphicsPixmapItem] = []
+        self._white_layer_preview_cache: dict[QGraphicsPixmapItem, tuple[int, QPixmap]] = {}
 
         self._scene = QGraphicsScene(self)
         self._scene.setSceneRect(self._pasteboard_rect())
@@ -156,9 +245,16 @@ class PrintViewport(QGraphicsView):
         self._margin_item.setZValue(-5)
         self._margin_item.setVisible(not self._margin_rect().isEmpty())
         self._scene.addItem(self._margin_item)
+        self._slot_overlay_item = SlotOverlayItem(
+            self._slot_layout, self._sheet.rect_points
+        )
+        self._slot_overlay_item.setZValue(-4)
+        self._slot_overlay_item.setVisible(self._slot_layout is not None)
+        self._scene.addItem(self._slot_overlay_item)
         self._extra_sheet_items: list[
             tuple[QGraphicsRectItem, QGraphicsRectItem, QGraphicsRectItem]
         ] = []
+        self._extra_slot_overlay_items: list[SlotOverlayItem] = []
         self._marker_items: list[QGraphicsEllipseItem] = []
         self._cut_path_items: list[QGraphicsLineItem] = []
         self._selection_highlight_items: list[QGraphicsRectItem] = []
@@ -227,6 +323,25 @@ class PrintViewport(QGraphicsView):
             margin_in=self._margin_in,
         )
 
+    def slot_layout_settings(self) -> SlotLayoutSettings | None:
+        return self._slot_layout
+
+    def set_slot_layout(self, slot_layout: SlotLayoutSettings) -> None:
+        self._slot_layout = slot_layout
+        self._sync_image_item_movable_flags()
+        self.set_artboard(
+            ArtboardSettings(
+                width_in=max(1.0, slot_layout.total_width_in),
+                height_in=max(1.0, slot_layout.total_height_in),
+                margin_in=slot_layout.outside_margin_in,
+            )
+        )
+
+    def slot_rects(self, sheet_index: int = 0) -> list[QRectF]:
+        return _slot_rects_for_sheet(
+            self._slot_layout, self._sheet_rect_for_index(sheet_index)
+        )
+
     def set_artboard(self, artboard: ArtboardSettings) -> None:
         preserved_positions = self._sheet_relative_item_positions()
         width = max(1.0, artboard.width_in)
@@ -246,16 +361,51 @@ class PrintViewport(QGraphicsView):
         margin_rect = self._margin_rect()
         self._margin_item.setRect(margin_rect)
         self._margin_item.setVisible(not margin_rect.isEmpty())
+        self._slot_overlay_item.set_layout(self._slot_layout, self._sheet.rect_points)
 
         self._refresh_extra_sheet_rects()
         self._restore_sheet_relative_item_positions(preserved_positions)
-        self._refresh_sheet_markers()
-        self._scene.update()
-        self.viewport_changed.emit()
+        self._refresh_artwork_scene(refresh_all_masks=True, update_scene=True)
+
+    def _refresh_artwork_scene(
+        self,
+        *,
+        mask_items: list[QGraphicsPixmapItem] | None = None,
+        refresh_all_masks: bool = False,
+        update_scene: bool = False,
+        emit_viewport: bool = True,
+        emit_layout: bool = True,
+        transform_items: list[QGraphicsPixmapItem] | None = None,
+    ) -> None:
+        if refresh_all_masks:
+            self._refresh_jig_masked_pixmaps()
+        elif mask_items is not None:
+            self._refresh_jig_masked_pixmaps(mask_items)
+
+        if update_scene:
+            self._scene.update()
         self.refresh_cut_paths()
         self.refresh_selection_highlights()
+        self._refresh_sheet_markers()
         self.refresh_ready_highlights()
-        self.sheet_layout_changed.emit()
+        self.refresh_white_layer_preview()
+        if emit_viewport:
+            self.viewport_changed.emit()
+        if emit_layout:
+            self.sheet_layout_changed.emit()
+        for item in transform_items or []:
+            if item.scene() is self._scene:
+                self.image_transform_changed.emit(item)
+
+    def _sync_image_item_movable_flags(self) -> None:
+        for item in self._image_items():
+            self._sync_image_item_movable_flag(item)
+
+    def _sync_image_item_movable_flag(self, item: QGraphicsPixmapItem) -> None:
+        item.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+            self._slot_layout is None,
+        )
 
     def add_image_file(
         self, path: Path, scene_position: QPointF
@@ -272,11 +422,22 @@ class PrintViewport(QGraphicsView):
         except (RuntimeError, ValueError, fitz.FileDataError):
             return None
 
-        pixmap = QPixmap()
-        if import_info.kind == ArtworkKind.PDF and import_info.preview_png is not None:
-            pixmap.loadFromData(import_info.preview_png, "PNG")
+        if import_info.preview_pixels is not None:
+            image_format = (
+                QImage.Format.Format_RGBA8888
+                if import_info.preview_has_alpha
+                else QImage.Format.Format_RGB888
+            )
+            image = QImage(
+                import_info.preview_pixels,
+                import_info.preview_width_px,
+                import_info.preview_height_px,
+                import_info.preview_stride,
+                image_format,
+            )
+            pixmap = QPixmap.fromImage(image.copy())
         else:
-            pixmap.load(str(path))
+            pixmap = QPixmap(str(path))
 
         if pixmap.isNull():
             return None
@@ -286,13 +447,15 @@ class PrintViewport(QGraphicsView):
 
         item = QGraphicsPixmapItem(pixmap)
         item.setOffset(-pixmap.width() / 2, -pixmap.height() / 2)
+        if self._slot_layout is not None:
+            scene_position = self._next_available_jig_slot_center()
         item.setPos(scene_position)
         item.setTransform(QTransform.fromScale(x_scale, y_scale))
         item.setFlags(
-            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
+        self._sync_image_item_movable_flag(item)
         item.setShapeMode(QGraphicsPixmapItem.ShapeMode.BoundingRectShape)
         item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
         item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
@@ -305,17 +468,19 @@ class PrintViewport(QGraphicsView):
         item.setData(6, import_info.page_index)
         item.setData(7, import_info.width_in)
         item.setData(8, import_info.height_in)
+        if self._slot_layout is not None:
+            item.setData(9, False)
         item.setData(10, import_info.width_in)
         item.setData(11, import_info.height_in)
+        item.setData(IMAGE_ITEM_ORDER_DATA_KEY, self._next_image_item_order)
+        self._next_image_item_order += 1
         item.setZValue(10)
 
         self._scene.addItem(item)
+        self._item_original_pixmaps[item] = QPixmap(pixmap)
         self.image_added.emit(item, str(path))
         self._ensure_trailing_empty_sheet()
-        self.refresh_cut_paths()
-        self.refresh_ready_highlights()
-        self.viewport_changed.emit()
-        self.sheet_layout_changed.emit()
+        self._refresh_artwork_scene(mask_items=[item])
         return item
 
     def select_image_item(self, item: QGraphicsPixmapItem) -> None:
@@ -355,15 +520,15 @@ class PrintViewport(QGraphicsView):
     def delete_selected_items(self) -> int:
         selected_items = [item for item in self._image_items() if item.isSelected()]
         for item in selected_items:
+            self._item_original_pixmaps.pop(item, None)
+            self._item_masked_pixmap_cache.pop(item, None)
+            self._white_layer_preview_cache.pop(item, None)
             self._scene.removeItem(item)
             self.image_removed.emit(item)
 
         if selected_items:
             self._ensure_trailing_empty_sheet()
-            self.refresh_cut_paths()
-            self.refresh_ready_highlights()
-            self.viewport_changed.emit()
-            self.sheet_layout_changed.emit()
+            self._refresh_artwork_scene()
 
         return len(selected_items)
 
@@ -380,6 +545,65 @@ class PrintViewport(QGraphicsView):
             if item.isSelected():
                 selected_count += 1
         return selected_count
+
+    def image_items(self) -> list[QGraphicsPixmapItem]:
+        return self._image_items()
+
+    def selected_image_item(self) -> QGraphicsPixmapItem | None:
+        selected = self._selected_image_items()
+        if not selected:
+            return None
+        return selected[0]
+
+    def ready_highlight_enabled(self) -> bool:
+        return self._ready_highlight_enabled
+
+    def slot_mask_path(self) -> Path | None:
+        return self._jig_mask_path
+
+    def set_slot_mask_path(self, path: Path | None) -> bool:
+        if path is None:
+            self._jig_mask_path = None
+            self._jig_mask_image = QImage()
+            self._jig_mask_revision += 1
+            self._item_masked_pixmap_cache.clear()
+            self._white_layer_preview_cache.clear()
+            self._refresh_jig_masked_pixmaps()
+            self.refresh_white_layer_preview()
+            self.viewport_changed.emit()
+            return True
+
+        image = QImage(str(path))
+        if image.isNull():
+            return False
+
+        self._jig_mask_path = path
+        self._jig_mask_image = image.convertToFormat(QImage.Format.Format_Grayscale8)
+        self._jig_mask_preview_enabled = True
+        self._jig_mask_revision += 1
+        self._item_masked_pixmap_cache.clear()
+        self._white_layer_preview_cache.clear()
+        self._refresh_jig_masked_pixmaps()
+        self.refresh_white_layer_preview()
+        self.viewport_changed.emit()
+        return True
+
+    def jig_mask_preview_enabled(self) -> bool:
+        return self._jig_mask_preview_enabled
+
+    def white_layer_preview_enabled(self) -> bool:
+        return self._white_layer_preview_enabled
+
+    def set_white_layer_preview_enabled(self, enabled: bool) -> None:
+        self._white_layer_preview_enabled = enabled
+        self.refresh_white_layer_preview()
+        self.viewport_changed.emit()
+
+    def set_jig_mask_preview_enabled(self, enabled: bool) -> None:
+        self._jig_mask_preview_enabled = enabled
+        self._refresh_jig_masked_pixmaps()
+        self.refresh_white_layer_preview()
+        self.viewport_changed.emit()
 
     def align_selected_items(self, mode: str) -> int:
         items = self._selected_image_items()
@@ -514,28 +738,14 @@ class PrintViewport(QGraphicsView):
 
     def _refresh_after_item_transform(self, item: QGraphicsPixmapItem) -> None:
         self._ensure_trailing_empty_sheet()
-        self.refresh_cut_paths()
-        self.refresh_selection_highlights()
-        self._refresh_sheet_markers()
-        self.refresh_ready_highlights()
-        self.viewport_changed.emit()
-        self.sheet_layout_changed.emit()
-        self.image_transform_changed.emit(item)
+        self._refresh_artwork_scene(mask_items=[item], transform_items=[item])
 
     def _refresh_after_items_moved(self, items: list[QGraphicsPixmapItem]) -> None:
         if not items:
             return
 
         self._ensure_trailing_empty_sheet()
-        self.refresh_cut_paths()
-        self.refresh_selection_highlights()
-        self._refresh_sheet_markers()
-        self.refresh_ready_highlights()
-        self.viewport_changed.emit()
-        self.sheet_layout_changed.emit()
-        for item in items:
-            if item.scene() is self._scene:
-                self.image_transform_changed.emit(item)
+        self._refresh_artwork_scene(mask_items=items, transform_items=items)
 
     def set_item_rounding(self, item: QGraphicsPixmapItem, enabled: bool) -> None:
         original_width = float(item.data(7) or item.data(3) or 0)
@@ -556,12 +766,9 @@ class PrintViewport(QGraphicsView):
         item.setData(9, enabled)
         item.setData(10, width_in)
         item.setData(11, height_in)
-        self.refresh_cut_paths()
-        self.refresh_selection_highlights()
-        self._refresh_sheet_markers()
-        self.refresh_ready_highlights()
-        self.sheet_layout_changed.emit()
-        self.image_transform_changed.emit(item)
+        self._refresh_artwork_scene(
+            mask_items=[item], emit_viewport=False, transform_items=[item]
+        )
 
     def auto_nest_predefined(
         self, layout_path: Path = AUTO_NEST_LAYOUT_PATH
@@ -605,12 +812,9 @@ class PrintViewport(QGraphicsView):
                 placed += 1
 
         self._ensure_trailing_empty_sheet()
-        self.viewport_changed.emit()
-        self.sheet_layout_changed.emit()
-        self._scene.update()
-        self.refresh_cut_paths()
-        self.refresh_selection_highlights()
-        self.refresh_ready_highlights()
+        self._refresh_artwork_scene(
+            mask_items=list(placeable_items), update_scene=True
+        )
         return placed, unmatched_count
 
     def grid_nest(self) -> int:
@@ -655,12 +859,7 @@ class PrintViewport(QGraphicsView):
             )
 
         self._ensure_trailing_empty_sheet()
-        self.viewport_changed.emit()
-        self.sheet_layout_changed.emit()
-        self._scene.update()
-        self.refresh_cut_paths()
-        self.refresh_selection_highlights()
-        self.refresh_ready_highlights()
+        self._refresh_artwork_scene(mask_items=items, update_scene=True)
         return len(placements)
 
     def fill_space_nest(self) -> int:
@@ -710,15 +909,12 @@ class PrintViewport(QGraphicsView):
             )
 
         self._ensure_trailing_empty_sheet()
-        self.viewport_changed.emit()
-        self.sheet_layout_changed.emit()
-        self._scene.update()
-        self.refresh_cut_paths()
-        self.refresh_selection_highlights()
-        self.refresh_ready_highlights()
+        self._refresh_artwork_scene(mask_items=items, update_scene=True)
         return len(placements)
 
     def cut_segments(self):
+        if self._slot_layout is not None:
+            return []
         return self._cut_segments_for_items(self._image_items())
 
     def _cut_segments_for_items(
@@ -805,10 +1001,15 @@ class PrintViewport(QGraphicsView):
             local_rect = item_rect.translated(
                 QPointF(-sheet_top_left.x(), -sheet_top_left.y())
             )
+            masked_png = self._masked_png_bytes_for_item(item)
             artworks.append(
                 ExportArtwork(
                     path=Path(str(item.data(0))),
-                    kind=ArtworkKind(str(item.data(5) or ArtworkKind.RASTER.value)),
+                    kind=(
+                        ArtworkKind.RASTER
+                        if masked_png is not None
+                        else ArtworkKind(str(item.data(5) or ArtworkKind.RASTER.value))
+                    ),
                     rect_points=(
                         local_rect.left(),
                         local_rect.top(),
@@ -817,18 +1018,23 @@ class PrintViewport(QGraphicsView):
                     ),
                     rotation=int(_item_rotation(item)) % 360,
                     page_index=int(item.data(6) or 0),
+                    image_bytes=masked_png,
                 )
             )
 
-        cut_segments = [
-            ExportSegment(
-                segment.x1 - sheet_top_left.x(),
-                segment.y1 - sheet_top_left.y(),
-                segment.x2 - sheet_top_left.x(),
-                segment.y2 - sheet_top_left.y(),
-            )
-            for segment in self._cut_segments_for_items(sheet_items)
-        ]
+        cut_segments = (
+            []
+            if self._slot_layout is not None
+            else [
+                ExportSegment(
+                    segment.x1 - sheet_top_left.x(),
+                    segment.y1 - sheet_top_left.y(),
+                    segment.x2 - sheet_top_left.x(),
+                    segment.y2 - sheet_top_left.y(),
+                )
+                for segment in self._cut_segments_for_items(sheet_items)
+            ]
+        )
         markers = [
             ExportMarker(
                 center_x=position.x() - sheet_top_left.x(),
@@ -848,6 +1054,8 @@ class PrintViewport(QGraphicsView):
 
     def refresh_cut_paths(self) -> None:
         self._clear_cut_paths()
+        if self._slot_layout is not None:
+            return
         pen = QPen(QColor("#ff0000"), 1.5, Qt.PenStyle.SolidLine)
         pen.setCosmetic(True)
         for segment in self.cut_segments():
@@ -871,16 +1079,89 @@ class PrintViewport(QGraphicsView):
             self._scene.addItem(highlight)
             self._selection_highlight_items.append(highlight)
 
+    def refresh_white_layer_preview(self) -> None:
+        self._clear_white_layer_preview()
+        if not self._white_layer_preview_enabled or self._slot_layout is None:
+            return
+
+        for item in self._image_items():
+            pixmap = self._white_layer_preview_pixmap_for_item(item)
+            if pixmap.isNull():
+                continue
+            overlay = QGraphicsPixmapItem(pixmap)
+            overlay.setData(AUXILIARY_PIXMAP_DATA_KEY, WHITE_LAYER_PREVIEW_DATA_VALUE)
+            overlay.setOffset(item.offset())
+            overlay.setPos(item.pos())
+            overlay.setTransform(item.transform())
+            overlay.setShapeMode(QGraphicsPixmapItem.ShapeMode.BoundingRectShape)
+            overlay.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+            overlay.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
+            overlay.setZValue(925)
+            overlay.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            overlay.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            self._scene.addItem(overlay)
+            self._white_layer_preview_items.append(overlay)
+
+    def _white_layer_preview_pixmap_for_item(self, item: QGraphicsPixmapItem) -> QPixmap:
+        source = self._white_layer_source_pixmap_for_item(item)
+        if source is None or source.isNull():
+            return QPixmap()
+
+        cached = self._white_layer_preview_cache.get(item)
+        source_key = int(source.cacheKey())
+        if cached is not None and cached[0] == source_key:
+            return cached[1]
+
+        source_image = source.toImage().convertToFormat(
+            QImage.Format.Format_ARGB32_Premultiplied
+        )
+        overlay_image = QImage(
+            source_image.size(), QImage.Format.Format_ARGB32_Premultiplied
+        )
+        overlay_image.fill(QColor(235, 25, 25, 165))
+        painter = QPainter(overlay_image)
+        try:
+            preview_dpi = max(72.0, float(item.data(1) or 72.0))
+        except (TypeError, ValueError):
+            preview_dpi = 72.0
+        stripe_spacing = max(10, round(preview_dpi * 0.16))
+        stripe_width = max(2, round(preview_dpi * 0.025))
+        stripe_pen = QPen(QColor(0, 0, 0, 220), stripe_width)
+        stripe_pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+        painter.setPen(stripe_pen)
+        height = source_image.height()
+        for x in range(-height, source_image.width(), stripe_spacing):
+            painter.drawLine(x, 0, x + height, height)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+        painter.drawImage(0, 0, source_image)
+        painter.end()
+
+        pixmap = QPixmap.fromImage(overlay_image)
+        self._white_layer_preview_cache[item] = (source_key, pixmap)
+        return pixmap
+
+    def _white_layer_source_pixmap_for_item(
+        self, item: QGraphicsPixmapItem
+    ) -> QPixmap | None:
+        original = self._item_original_pixmaps.get(item)
+        if original is None:
+            return None
+        if self._slot_layout is not None and not self._jig_mask_image.isNull():
+            return self._masked_pixmap_for_item(item, original)
+        return original
+
+    def _clear_white_layer_preview(self) -> None:
+        for item in self._white_layer_preview_items:
+            self._scene.removeItem(item)
+        self._white_layer_preview_items.clear()
+
     def print_ready_items(self) -> list[QGraphicsPixmapItem]:
         print_areas = self._print_area_rects()
         if not print_areas:
             return []
 
         ready: list[QGraphicsPixmapItem] = []
-        for item in self._scene.items():
-            if not isinstance(item, QGraphicsPixmapItem):
-                continue
-
+        for item in self._image_items():
             bounds = item.sceneBoundingRect()
             if bounds.isEmpty():
                 continue
@@ -1075,15 +1356,9 @@ class PrintViewport(QGraphicsView):
             return
 
         super().mouseReleaseEvent(event)
+        moved_items = self._selected_image_items()
         self._ensure_trailing_empty_sheet()
-        self.refresh_cut_paths()
-        self.refresh_selection_highlights()
-        self._refresh_sheet_markers()
-        self.refresh_ready_highlights()
-        self.viewport_changed.emit()
-        self.sheet_layout_changed.emit()
-        for item in self._selected_image_items():
-            self.image_transform_changed.emit(item)
+        self._refresh_artwork_scene(mask_items=moved_items, transform_items=moved_items)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in {Qt.Key.Key_Delete, Qt.Key.Key_Backspace}:
@@ -1291,7 +1566,6 @@ class PrintViewport(QGraphicsView):
                 painter.drawLine(QPointF(x, y - mark_size), QPointF(x, y + mark_size))
                 y += step
             x += step
-
         painter.restore()
 
     def _draw_grid(self, painter: QPainter, rect: QRectF) -> None:
@@ -1342,8 +1616,9 @@ class PrintViewport(QGraphicsView):
         top_left = self.mapFromScene(self._sheet.rect_points.topLeft())
         painter.setPen(QPen(QColor("#5f6368")))
         painter.setFont(QFont("Segoe UI", 9))
+        label = "Jig" if self._slot_layout is not None else "Artboard"
         painter.drawText(
-            top_left.x(), top_left.y() - 12, f"Artboard - {self._sheet.name}"
+            top_left.x(), top_left.y() - 12, f"{label} - {self._sheet.name}"
         )
         painter.restore()
 
@@ -1397,13 +1672,156 @@ class PrintViewport(QGraphicsView):
 
         return matching, unmatched
 
+    def _next_available_jig_slot_center(self) -> QPointF:
+        occupied_slots = self._occupied_jig_slot_keys()
+        for sheet_index in range(self._sheet_count()):
+            for slot_index, slot_rect in enumerate(self.slot_rects(sheet_index)):
+                if (sheet_index, slot_index) not in occupied_slots:
+                    return slot_rect.center()
+
+        sheet_index = self._sheet_count()
+        self._ensure_sheet_count(sheet_index + 1)
+        slots = self.slot_rects(sheet_index)
+        if slots:
+            return slots[0].center()
+        return self._sheet_rect_for_index(sheet_index).center()
+
+    def _occupied_jig_slot_keys(self) -> set[tuple[int, int]]:
+        occupied: set[tuple[int, int]] = set()
+        for item in self._image_items():
+            item_center = item.pos()
+            for sheet_index in range(self._sheet_count()):
+                for slot_index, slot_rect in enumerate(self.slot_rects(sheet_index)):
+                    if slot_rect.contains(item_center):
+                        occupied.add((sheet_index, slot_index))
+                        break
+                else:
+                    continue
+                break
+        return occupied
+
+    def _refresh_jig_masked_pixmaps(
+        self, items: list[QGraphicsPixmapItem] | None = None
+    ) -> None:
+        target_items = self._image_items() if items is None else items
+        for item in target_items:
+            if item.scene() is self._scene:
+                self._refresh_jig_masked_pixmap(item)
+
+    def _refresh_jig_masked_pixmap(self, item: QGraphicsPixmapItem) -> None:
+        original = self._item_original_pixmaps.get(item)
+        if original is None:
+            original = QPixmap(item.pixmap())
+            self._item_original_pixmaps[item] = original
+
+        if self._should_show_jig_masked_items():
+            masked = self._masked_pixmap_for_item(item, original)
+            if item.pixmap().cacheKey() != masked.cacheKey():
+                item.setPixmap(masked)
+        elif item.pixmap().cacheKey() != original.cacheKey():
+            item.setPixmap(original)
+
+    def _should_show_jig_masked_items(self) -> bool:
+        return (
+            self._slot_layout is not None
+            and self._jig_mask_preview_enabled
+            and not self._jig_mask_image.isNull()
+        )
+
+    def _slot_rect_for_item(self, item: QGraphicsPixmapItem) -> QRectF | None:
+        for sheet_index in range(self._sheet_count()):
+            for slot_rect in self.slot_rects(sheet_index):
+                if slot_rect.contains(item.pos()):
+                    return slot_rect
+        return None
+
+    def _masked_pixmap_for_item(
+        self, item: QGraphicsPixmapItem, original: QPixmap | None = None
+    ) -> QPixmap:
+        original = original if original is not None else self._item_original_pixmaps.get(item)
+        if (
+            original is None
+            or original.isNull()
+            or self._jig_mask_image.isNull()
+            or self._slot_layout is None
+        ):
+            return item.pixmap()
+
+        slot_rect = self._slot_rect_for_item(item)
+        item_rect = self._item_footprint_rect(item)
+        if slot_rect is None or item_rect.isEmpty():
+            return original
+
+        cache_key = self._jig_mask_cache_key(original, item_rect, slot_rect)
+        cached = self._item_masked_pixmap_cache.get(item)
+        if cached is not None and cached[0] == cache_key:
+            return cached[1]
+
+        mask_canvas = QImage(original.size(), QImage.Format.Format_Grayscale8)
+        mask_canvas.fill(255)
+        painter = QPainter(mask_canvas)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        dest_rect = QRectF(
+            (slot_rect.left() - item_rect.left()) / item_rect.width() * original.width(),
+            (slot_rect.top() - item_rect.top()) / item_rect.height() * original.height(),
+            slot_rect.width() / item_rect.width() * original.width(),
+            slot_rect.height() / item_rect.height() * original.height(),
+        )
+        painter.drawImage(dest_rect, self._jig_mask_image)
+        painter.end()
+        mask_canvas.invertPixels(QImage.InvertMode.InvertRgb)
+
+        image = original.toImage().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+        alpha = QImage(original.size(), QImage.Format.Format_ARGB32_Premultiplied)
+        alpha.fill(QColor(0, 0, 0, 255))
+        alpha.setAlphaChannel(mask_canvas)
+        painter = QPainter(image)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+        painter.drawImage(0, 0, alpha)
+        painter.end()
+
+        pixmap = QPixmap.fromImage(image)
+        self._item_masked_pixmap_cache[item] = (cache_key, pixmap)
+        return pixmap
+
+    def _jig_mask_cache_key(
+        self, original: QPixmap, item_rect: QRectF, slot_rect: QRectF
+    ) -> tuple[object, ...]:
+        return (
+            int(original.cacheKey()),
+            self._jig_mask_revision,
+            round(item_rect.left(), 3),
+            round(item_rect.top(), 3),
+            round(item_rect.width(), 3),
+            round(item_rect.height(), 3),
+            round(slot_rect.left(), 3),
+            round(slot_rect.top(), 3),
+            round(slot_rect.width(), 3),
+            round(slot_rect.height(), 3),
+        )
+
+    def _masked_png_bytes_for_item(self, item: QGraphicsPixmapItem) -> bytes | None:
+        if self._slot_layout is None or self._jig_mask_image.isNull():
+            return None
+        original = self._item_original_pixmaps.get(item)
+        if original is None:
+            return None
+        pixmap = self._masked_pixmap_for_item(item, original)
+        data = QByteArray()
+        buffer = QBuffer(data)
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        pixmap.save(buffer, "PNG")
+        buffer.close()
+        return bytes(data)
+
     def _image_items(self) -> list[QGraphicsPixmapItem]:
         items = [
             item
             for item in self._scene.items()
             if isinstance(item, QGraphicsPixmapItem)
+            and self._is_artwork_pixmap_item(item)
         ]
-        items.sort(key=lambda item: id(item))
+        items.sort(key=lambda item: int(item.data(IMAGE_ITEM_ORDER_DATA_KEY) or 0))
         return items
 
     def _selected_image_items(self) -> list[QGraphicsPixmapItem]:
@@ -1444,9 +1862,12 @@ class PrintViewport(QGraphicsView):
 
     def _image_item_at(self, viewport_position: QPoint) -> QGraphicsPixmapItem | None:
         for item in self.items(viewport_position):
-            if isinstance(item, QGraphicsPixmapItem):
+            if isinstance(item, QGraphicsPixmapItem) and self._is_artwork_pixmap_item(item):
                 return item
         return None
+
+    def _is_artwork_pixmap_item(self, item: QGraphicsPixmapItem) -> bool:
+        return item.data(AUXILIARY_PIXMAP_DATA_KEY) != WHITE_LAYER_PREVIEW_DATA_VALUE
 
     def _sheet_count(self) -> int:
         return 1 + len(self._extra_sheet_items)
@@ -1633,6 +2054,9 @@ class PrintViewport(QGraphicsView):
         while len(self._extra_sheet_items) < max(0, count - 1):
             sheet_index = len(self._extra_sheet_items) + 1
             self._extra_sheet_items.append(self._create_extra_sheet(sheet_index))
+            self._extra_slot_overlay_items.append(
+                self._create_extra_slot_overlay(sheet_index)
+            )
         self._refresh_sheet_markers()
 
     def _set_sheet_count(self, count: int) -> None:
@@ -1641,6 +2065,8 @@ class PrintViewport(QGraphicsView):
             sheet_items = self._extra_sheet_items.pop()
             for item in sheet_items:
                 self._scene.removeItem(item)
+            slot_overlay = self._extra_slot_overlay_items.pop()
+            self._scene.removeItem(slot_overlay)
 
         self._ensure_sheet_count(count)
 
@@ -1671,6 +2097,15 @@ class PrintViewport(QGraphicsView):
         self._scene.addItem(margin)
         return shadow, sheet, margin
 
+    def _create_extra_slot_overlay(self, sheet_index: int) -> SlotOverlayItem:
+        overlay = SlotOverlayItem(
+            self._slot_layout, self._sheet_rect_for_index(sheet_index)
+        )
+        overlay.setZValue(-4)
+        overlay.setVisible(self._slot_layout is not None)
+        self._scene.addItem(overlay)
+        return overlay
+
     def _refresh_extra_sheet_rects(self) -> None:
         shadow_offset = 12
         for index, (shadow, sheet, margin) in enumerate(
@@ -1682,6 +2117,9 @@ class PrintViewport(QGraphicsView):
             margin_rect = self._margin_rect_for_sheet_rect(rect)
             margin.setRect(margin_rect)
             margin.setVisible(not margin_rect.isEmpty())
+
+        for index, overlay in enumerate(self._extra_slot_overlay_items, start=1):
+            overlay.set_layout(self._slot_layout, self._sheet_rect_for_index(index))
 
     def _sheet_rect_for_index(self, sheet_index: int) -> QRectF:
         column = sheet_index % AUTO_NEST_SHEET_COLUMNS
@@ -1735,6 +2173,8 @@ class PrintViewport(QGraphicsView):
 
     def _refresh_sheet_markers(self) -> None:
         self._clear_sheet_markers()
+        if self._slot_layout is not None:
+            return
 
         marker_diameter_points = (MARKER_DIAMETER_MM / MM_PER_INCH) * POINTS_PER_INCH
         marker_radius_points = marker_diameter_points / 2
@@ -1759,6 +2199,9 @@ class PrintViewport(QGraphicsView):
                 self._marker_items.append(item)
 
     def _sheet_marker_positions(self, sheet_index: int) -> list[QPointF]:
+        if self._slot_layout is not None:
+            return []
+
         bounds = self._sheet_content_bounds(sheet_index)
         if bounds is None:
             return []

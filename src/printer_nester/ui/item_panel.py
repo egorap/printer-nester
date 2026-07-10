@@ -66,8 +66,24 @@ class ItemPanel(QWidget):
         layout.addWidget(title)
         layout.addWidget(self._list, 1)
 
-    def add_image_item(self, graphics_item, path: str) -> None:  # type: ignore[no-untyped-def]
-        row = ItemRowWidget(graphics_item, path)
+    def clear_items(self) -> None:
+        self._list.clear()
+
+    def set_image_items(self, items: list) -> None:  # type: ignore[type-arg]
+        self.clear_items()
+        for graphics_item in items:
+            self.add_image_item(
+                graphics_item, str(graphics_item.data(0)), apply_default_rounding=False
+            )
+
+    def add_image_item(
+        self, graphics_item, path: str, apply_default_rounding: bool = True
+    ) -> None:  # type: ignore[no-untyped-def]
+        row = ItemRowWidget(
+            graphics_item,
+            path,
+            rounding_enabled=self._rounding_enabled_for_item(graphics_item),
+        )
         row.rounding_changed.connect(self._handle_rounding_changed)
         list_item = QListWidgetItem(Path(path).name)
         list_item.setToolTip(path)
@@ -75,9 +91,14 @@ class ItemPanel(QWidget):
         list_item.setSizeHint(QSize(0, ROW_HEIGHT))
         self._list.addItem(list_item)
         self._list.setItemWidget(list_item, row)
-        self._handle_rounding_changed(graphics_item, True)
+        if apply_default_rounding:
+            self._handle_rounding_changed(graphics_item, True)
         row.refresh_dimensions()
         self._refresh_row_selection_styles()
+
+    def _rounding_enabled_for_item(self, graphics_item) -> bool:  # type: ignore[no-untyped-def]
+        value = graphics_item.data(9)
+        return True if value is None else bool(value)
 
     def remove_image_item(self, graphics_item) -> None:  # type: ignore[no-untyped-def]
         for row in range(self._list.count()):
@@ -99,7 +120,9 @@ class ItemPanel(QWidget):
             if list_item.data(Qt.ItemDataRole.UserRole) is graphics_item:
                 self._list.setCurrentItem(list_item)
                 list_item.setSelected(True)
-                self._list.scrollToItem(list_item, QAbstractItemView.ScrollHint.PositionAtCenter)
+                self._list.scrollToItem(
+                    list_item, QAbstractItemView.ScrollHint.PositionAtCenter
+                )
                 return
 
         self._list.clearSelection()
@@ -138,7 +161,7 @@ class ItemPanel(QWidget):
 class ItemRowWidget(QFrame):
     rounding_changed = Signal(object, bool)
 
-    def __init__(self, graphics_item, path: str) -> None:  # type: ignore[no-untyped-def]
+    def __init__(self, graphics_item, path: str, rounding_enabled: bool = True) -> None:  # type: ignore[no-untyped-def]
         super().__init__()
         self._graphics_item = graphics_item
 
@@ -180,7 +203,9 @@ class ItemRowWidget(QFrame):
         thumbnail.setFixedSize(QSize(64, 64))
         thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         thumbnail.setPixmap(self._thumbnail_for_item(graphics_item))
-        thumbnail.setStyleSheet("background: #eef1f4; border: 1px solid #d4d9df; border-radius: 4px;")
+        thumbnail.setStyleSheet(
+            "background: #eef1f4; border: 1px solid #d4d9df; border-radius: 4px;"
+        )
 
         info_layout = QVBoxLayout()
         info_layout.setContentsMargins(0, 0, 0, 0)
@@ -209,7 +234,7 @@ class ItemRowWidget(QFrame):
         toggle_layout.setSpacing(6)
 
         round_toggle = QCheckBox("Round")
-        round_toggle.setChecked(True)
+        round_toggle.setChecked(rounding_enabled)
         round_toggle.setToolTip("Round this item to the nearest whole inch.")
         round_toggle.toggled.connect(self._handle_rounding_toggled)
 
