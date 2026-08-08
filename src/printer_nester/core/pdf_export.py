@@ -32,7 +32,8 @@ class ExportKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ExportSettings:
-    print_directory: Path
+    sheet_print_directory: Path
+    jig_print_directory: Path
     cut_directory: Path
     local_temp_directory: Path
 
@@ -78,13 +79,29 @@ class ExportResult:
     bytes_written: int
 
 
-def export_sheet_pdf(sheet: ExportSheet, kind: ExportKind, settings: ExportSettings) -> ExportResult:
-    destination_dir = settings.print_directory if kind == ExportKind.PRINT else settings.cut_directory
-    destination_name = f"sheet_{sheet.sheet_index + 1:03d}_{kind.value}.pdf"
+def export_sheet_pdf(
+    sheet: ExportSheet,
+    kind: ExportKind,
+    settings: ExportSettings,
+    export_number: int | None = None,
+) -> ExportResult:
+    destination_dir = (
+        settings.sheet_print_directory
+        if kind == ExportKind.PRINT
+        else settings.cut_directory
+    )
+    file_number = (
+        sheet.sheet_index + 1
+        if export_number is None
+        else max(1, int(export_number))
+    )
+    destination_name = f"sheet_{file_number:03d}_{kind.value}.pdf"
     destination = destination_dir / destination_name
 
     _ensure_configured_directory(destination_dir, f"{kind.value} export directory")
-    _ensure_configured_directory(settings.local_temp_directory, "local temp export directory")
+    _ensure_configured_directory(
+        settings.local_temp_directory, "local temp export directory"
+    )
     settings.local_temp_directory.mkdir(parents=True, exist_ok=True)
     destination_dir.mkdir(parents=True, exist_ok=True)
     _ensure_directory_writable(settings.local_temp_directory)

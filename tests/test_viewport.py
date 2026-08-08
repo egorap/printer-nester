@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -470,6 +471,31 @@ def test_delete_selected_items_removes_items_and_refreshes_cut_paths() -> None:
     assert second.scene() is viewport.scene()
     assert len(viewport._image_items()) == 1
     assert len(viewport.cut_segments()) == 4
+
+
+def test_bulk_delete_batches_selection_and_removal_updates(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "bulk-delete.png"
+    Image.new("RGBA", (20, 20), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
+    viewport = PrintViewport()
+    items = [
+        viewport.add_image_file(image_path, QPointF(index * 200, 0))
+        for index in range(20)
+    ]
+    assert all(item is not None for item in items)
+    for item in items:
+        item.setSelected(True)
+
+    selection_updates = []
+    batch_updates = []
+    viewport.image_selection_changed.connect(selection_updates.append)
+    viewport.images_removed.connect(batch_updates.append)
+
+    assert viewport.delete_selected_items() == 20
+
+    assert selection_updates == [None]
+    assert batch_updates == [items]
+    assert viewport.image_items() == []
 
 
 def test_item_panel_emits_graphics_item_when_clicked(tmp_path) -> None:
@@ -1681,6 +1707,9 @@ def test_import_artwork_batch_reports_progress_and_offsets_items(monkeypatch) ->
     monkeypatch.setattr(viewport, "add_artwork_file", fake_add)
     paths = [Path("one.png"), Path("two.pdf")]
     progress = FakeProgress()
+    import_events = []
+    viewport.artwork_import_started.connect(lambda: import_events.append("started"))
+    viewport.artwork_import_finished.connect(lambda: import_events.append("finished"))
 
     added = viewport._import_artwork_batch(paths, QPointF(10, 20), progress)
 
@@ -1688,6 +1717,7 @@ def test_import_artwork_batch_reports_progress_and_offsets_items(monkeypatch) ->
     assert imported == [(paths[0], QPointF(10, 20)), (paths[1], QPointF(34, 44))]
     assert progress.labels == ["Importing one.png", "Importing two.pdf"]
     assert progress.value == 2
+    assert import_events == ["started", "finished"]
 
 
 def test_import_artwork_batch_can_be_canceled_between_files(monkeypatch) -> None:
@@ -2133,8 +2163,9 @@ def test_artboard_panel_switches_to_slot_layout_controls_and_emits_settings() ->
     assert panel._sheet_artboard_section.isHidden()
     assert not panel._slot_layout_section.isHidden()
     assert panel._transform_section.isHidden()
-    assert panel._export_settings_title.text() == "Print Export"
-    assert not panel._print_export_row.isHidden()
+    assert panel._export_settings_title.text() == "Jig Print Export"
+    assert panel._sheet_print_export_row.isHidden()
+    assert not panel._jig_print_export_row.isHidden()
     assert panel._cut_export_row.isHidden()
     assert panel._temp_export_row.isHidden()
     assert panel._title.text() == "Jig Slots"
@@ -2227,7 +2258,7 @@ def test_artboard_panel_updates_sheet_export_ui() -> None:
     assert buttons.count("Export Cut") == 2
     assert len(thumbnails) == 2
     assert all(not thumbnail.pixmap().isNull() for thumbnail in thumbnails)
-    assert "Export Folders" in labels
+    assert "Sheet Export Folders" in labels
 
 def test_artboard_panel_updates_jig_sheet_export_ui() -> None:
     QApplication.instance() or QApplication([])
@@ -2235,7 +2266,7 @@ def test_artboard_panel_updates_jig_sheet_export_ui() -> None:
     panel.set_profile_kind(NestProfileKind.JIG)
     panel.set_sheet_rows(
         [
-            SheetPanelRow(0, 3, True, True, False),
+            SheetPanelRow(0, 3, True, True, False, order_numbers=("A100",)),
             SheetPanelRow(1, 0, True, False, False),
         ]
     )
@@ -2247,9 +2278,34 @@ def test_artboard_panel_updates_jig_sheet_export_ui() -> None:
     assert "Jig PDF" in labels
     assert "Export All" in buttons
     assert buttons.count("Export Jig") == 2
+    assert buttons.count("Print Labels") == 2
+    label_buttons = [
+        button
+        for button in panel.findChildren(QPushButton)
+        if button.text() == "Print Labels"
+    ]
+    assert label_buttons[0].isEnabled()
+    assert not label_buttons[1].isEnabled()
     assert "Export Print" not in buttons
     assert "Export Cut" not in buttons
     assert "Export Jig Layout PDF" not in buttons
+
+
+
+def test_artboard_panel_sets_label_printer_choices() -> None:
+    QApplication.instance() or QApplication([])
+    panel = ArtboardPanel(ArtboardSettings(width_in=48, height_in=96, margin_in=0.25))
+    panel.set_profile_kind(NestProfileKind.JIG)
+
+    panel.set_label_printers(
+        [SimpleNamespace(printer_id="123", display_name="Shipping Labels - online")]
+    )
+
+    assert panel.label_printer_id() == "123"
+
+    panel.set_label_printer_id("456")
+
+    assert panel.label_printer_id() == "456"
 
 def test_artboard_panel_saves_jig_mask_path_with_default(monkeypatch, tmp_path) -> None:
     QApplication.instance() or QApplication([])
@@ -2297,13 +2353,15 @@ def test_artboard_panel_exports_settings_from_inputs() -> None:
     QApplication.instance() or QApplication([])
     panel = ArtboardPanel(ArtboardSettings(width_in=48, height_in=96, margin_in=0.25))
 
-    panel._print_export_input.setText("C:/print")
+    panel._sheet_print_export_input.setText("C:/sheet-print")
+    panel._jig_print_export_input.setText("C:/jig-print")
     panel._cut_export_input.setText("C:/cut")
     panel._temp_export_input.setText("C:/tmp/printer")
 
     settings = panel.export_settings()
 
-    assert settings.print_directory.as_posix() == "C:/print"
+    assert settings.sheet_print_directory.as_posix() == "C:/sheet-print"
+    assert settings.jig_print_directory.as_posix() == "C:/jig-print"
     assert settings.cut_directory.as_posix() == "C:/cut"
     assert settings.local_temp_directory.as_posix() == "C:/tmp/printer"
 
@@ -2333,14 +2391,19 @@ def test_export_sheet_pdf_writes_print_and_cut_layers() -> None:
     assert item is not None
     sheet = viewport.export_sheet_data(0)
     settings = ExportSettings(
-        print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir
+        sheet_print_directory=print_dir,
+        jig_print_directory=output_dir / "jig",
+        cut_directory=cut_dir,
+        local_temp_directory=temp_dir,
     )
 
-    print_result = export_sheet_pdf(sheet, ExportKind.PRINT, settings)
-    cut_result = export_sheet_pdf(sheet, ExportKind.CUT, settings)
+    print_result = export_sheet_pdf(
+        sheet, ExportKind.PRINT, settings, export_number=27
+    )
+    cut_result = export_sheet_pdf(sheet, ExportKind.CUT, settings, export_number=27)
 
-    assert print_result.path == print_dir / "sheet_001_print.pdf"
-    assert cut_result.path == cut_dir / "sheet_001_cut.pdf"
+    assert print_result.path == print_dir / "sheet_027_print.pdf"
+    assert cut_result.path == cut_dir / "sheet_027_cut.pdf"
     with fitz.open(print_result.path) as document:
         assert document.page_count == 1
         assert document[0].rect.width < sheet.width_points
@@ -2373,7 +2436,10 @@ def test_export_sheet_pdf_never_overwrites_existing_file() -> None:
     )
     assert item is not None
     settings = ExportSettings(
-        print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir
+        sheet_print_directory=print_dir,
+        jig_print_directory=output_dir / "jig",
+        cut_directory=cut_dir,
+        local_temp_directory=temp_dir,
     )
 
     result = export_sheet_pdf(viewport.export_sheet_data(0), ExportKind.PRINT, settings)
@@ -2401,7 +2467,10 @@ def test_export_sheet_pdf_trims_to_half_inch_outside_markers() -> None:
     assert item is not None
     sheet = viewport.export_sheet_data(0)
     settings = ExportSettings(
-        print_directory=print_dir, cut_directory=cut_dir, local_temp_directory=temp_dir
+        sheet_print_directory=print_dir,
+        jig_print_directory=output_dir / "jig",
+        cut_directory=cut_dir,
+        local_temp_directory=temp_dir,
     )
 
     result = export_sheet_pdf(sheet, ExportKind.PRINT, settings)
@@ -2614,7 +2683,8 @@ def test_viewport_sheet_thumbnail_renders_artwork_preview() -> None:
 def test_export_sheet_pdf_rejects_unconfigured_destination() -> None:
     sheet = PrintViewport().export_sheet_data(0)
     settings = ExportSettings(
-        print_directory=Path(""),
+        sheet_print_directory=Path(""),
+        jig_print_directory=Path("test_outputs/jig"),
         cut_directory=Path("test_outputs/cut"),
         local_temp_directory=Path("test_outputs/temp"),
     )

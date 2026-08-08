@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
+import time
+from io import BytesIO
 from pathlib import Path
+import zipfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -12,9 +16,12 @@ from PySide6.QtCore import QPointF, Qt
 from printer_nester.core.artboard import SlotLayoutSettings
 from PySide6.QtWidgets import QApplication
 
+from printer_nester.core.label_print import PrintNodePrinter
+
 from printer_nester.core.nest_profile import NestProfileKind
 from printer_nester.core.pdf_export import ExportKind
 from printer_nester.ui.main_window import MainWindow
+from printer_nester.ui.viewport import HOT_FOLDER_ORDER_DATA_KEY
 
 
 def _test_image(name: str) -> Path:
@@ -24,6 +31,28 @@ def _test_image(name: str) -> Path:
     Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(image_path, dpi=(10, 10))
     return image_path
 
+
+def _png_bytes() -> bytes:
+    buffer = BytesIO()
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(
+        buffer, format="PNG", dpi=(300, 300)
+    )
+    return buffer.getvalue()
+
+
+def _write_hot_order_zip(
+    hot_root: Path, filename: str, order_number: str, quantity: int
+) -> None:
+    incoming = hot_root / "incoming"
+    incoming.mkdir(parents=True, exist_ok=True)
+    artwork_name = f"artwork/{order_number}.png"
+    manifest = {
+        "order_number": order_number,
+        "items": [{"file": artwork_name, "quantity": quantity}],
+    }
+    with zipfile.ZipFile(incoming / filename, "w") as archive:
+        archive.writestr("order.json", json.dumps(manifest))
+        archive.writestr(artwork_name, _png_bytes())
 
 def test_main_window_starts_with_sheet_profile_tab() -> None:
     QApplication.instance() or QApplication([])
@@ -86,6 +115,45 @@ def test_main_window_rebinds_item_panel_when_switching_profile_tabs() -> None:
     assert window.viewport is first_profile.viewport
     assert window.item_panel._list.count() == 1
     assert window.item_panel._list.item(0).data(Qt.ItemDataRole.UserRole) is first_item
+
+    window.close()
+
+
+def test_main_window_rebuilds_sheet_rows_once_after_batch_import(
+    monkeypatch, tmp_path
+) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "batch.png"
+    Image.new("RGBA", (20, 20), (255, 0, 0, 255)).save(
+        image_path, dpi=(10, 10)
+    )
+    window = MainWindow()
+    refreshes = []
+    original = window.artboard_panel.set_sheet_rows
+
+    def record_refresh(rows):
+        refreshes.append(rows)
+        original(rows)
+
+    monkeypatch.setattr(window.artboard_panel, "set_sheet_rows", record_refresh)
+
+    class Progress:
+        def setValue(self, _value):
+            pass
+
+        def setLabelText(self, _text):
+            pass
+
+        def wasCanceled(self):
+            return False
+
+    added = window.viewport._import_artwork_batch(
+        [image_path] * 5, QPointF(0, 0), Progress()
+    )
+
+    assert added == 5
+    assert len(refreshes) == 1
+    assert window.item_panel._list.count() == 5
 
     window.close()
 
@@ -162,6 +230,80 @@ def test_main_window_jig_profile_uses_slot_layout_and_updates_viewport() -> None
     window.close()
 
 
+
+def test_main_window_processes_hot_folder_orders_as_groups(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    hot_root = tmp_path / "hot-folder"
+    _write_hot_order_zip(hot_root, "001-order-a.zip", "A100", 1)
+    _write_hot_order_zip(hot_root, "002-order-b.zip", "B200", 2)
+    window = MainWindow()
+    slot_layout = SlotLayoutSettings(
+        slot_width_in=1,
+        slot_height_in=1,
+        slot_margin_in=0,
+        horizontal_spacing_in=0,
+        vertical_spacing_in=0,
+        columns=2,
+        rows=1,
+        outside_margin_in=0,
+    )
+    window._add_profile(NestProfileKind.JIG, switch=True, slot_layout=slot_layout)
+    window.artboard_panel.set_hot_folder_root(hot_root)
+
+    window._process_hot_folder()
+
+    assert len(window.viewport.image_items()) == 3
+    assert window._sheet_order_numbers(0) == ["A100"]
+    assert window._sheet_order_numbers(1) == ["B200"]
+    assert window.viewport.sheet_item_summary()[0][1] == 1
+    assert window.viewport.sheet_item_summary()[1][1] == 2
+    assert len(list((hot_root / "done").glob("*.zip"))) == 2
+    assert not list((hot_root / "processing").glob("*.zip"))
+    assert all(
+        (hot_root / "done") in Path(str(item.data(0))).parents
+        for item in window.viewport.image_items()
+    )
+
+    window.close()
+
+
+
+def test_main_window_poll_hot_folder_imports_ready_orders(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    hot_root = tmp_path / "poll-hot-folder"
+    _write_hot_order_zip(hot_root, "001-order-a.zip", "A100", 1)
+    zip_path = hot_root / "incoming" / "001-order-a.zip"
+    window = MainWindow()
+    slot_layout = SlotLayoutSettings(
+        slot_width_in=1,
+        slot_height_in=1,
+        slot_margin_in=0,
+        horizontal_spacing_in=0,
+        vertical_spacing_in=0,
+        columns=2,
+        rows=1,
+        outside_margin_in=0,
+    )
+    window._add_profile(NestProfileKind.JIG, switch=True, slot_layout=slot_layout)
+    window.artboard_panel.set_hot_folder_root(hot_root)
+
+    window._poll_hot_folder()
+
+    assert len(window.viewport.image_items()) == 0
+    assert zip_path.exists()
+
+    old_time = time.time() - 5
+    os.utime(zip_path, (old_time, old_time))
+
+    window._poll_hot_folder()
+
+    assert len(window.viewport.image_items()) == 1
+    assert window._sheet_order_numbers(0) == ["A100"]
+    assert not zip_path.exists()
+    assert len(list((hot_root / "done").glob("*.zip"))) == 1
+
+    window.close()
+
 def test_main_window_applies_default_jig_mask_path(monkeypatch, tmp_path) -> None:
     QApplication.instance() or QApplication([])
     mask_path = tmp_path / "default-jig-mask.png"
@@ -179,7 +321,7 @@ def test_main_window_applies_default_jig_mask_path(monkeypatch, tmp_path) -> Non
 
     window.close()
 
-def test_main_window_exports_jig_sheet_pdf(tmp_path) -> None:
+def test_main_window_exports_jig_sheet_pdf(monkeypatch, tmp_path) -> None:
     QApplication.instance() or QApplication([])
     output_dir = tmp_path / "main_window_jig_sheet"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -187,7 +329,13 @@ def test_main_window_exports_jig_sheet_pdf(tmp_path) -> None:
     Image.new("RGBA", (100, 100), (255, 255, 255, 255)).save(
         image_path, dpi=(100, 100)
     )
-    destination = output_dir / "jig_sheet_001.pdf"
+    monkeypatch.setattr(
+        "printer_nester.ui.main_window.load_export_counter", lambda: 42
+    )
+    monkeypatch.setattr(
+        "printer_nester.ui.main_window.save_export_counter", lambda _value: None
+    )
+    destination = output_dir / "jig_sheet_042.pdf"
     window = MainWindow()
     window.artboard_panel.set_jig_mask_path(None)
     slot_layout = SlotLayoutSettings(
@@ -201,14 +349,22 @@ def test_main_window_exports_jig_sheet_pdf(tmp_path) -> None:
         outside_margin_in=0,
     )
     window._add_profile(NestProfileKind.JIG, switch=True, slot_layout=slot_layout)
-    assert window.viewport.add_image_file(image_path, QPointF(0, 0)) is not None
-    window.artboard_panel._print_export_input.setText(str(output_dir))
+    item = window.viewport.add_image_file(image_path, QPointF(0, 0))
+    assert item is not None
+    item.setData(HOT_FOLDER_ORDER_DATA_KEY, "ORDER-1")
+    window.artboard_panel._jig_print_export_input.setText(str(output_dir))
     window.artboard_panel._temp_export_input.setText(str(output_dir / "temp"))
 
     window._export_sheet(0, "jig")
 
     assert destination.exists()
     assert (0, ExportKind.PRINT) in window._active_profile().exported_sheets
+    assert window._export_counter_input.value() == 43
+    sidecar = output_dir / "jig_sheet_042_orders.json"
+    assert sidecar.exists()
+    sidecar_payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert sidecar_payload["orders"] == ["ORDER-1"]
+    assert sidecar_payload["sheet_file"] == "jig_sheet_042.pdf"
     with fitz.open(destination) as document:
         assert document.page_count == 1
         content = b"\n".join(
@@ -223,6 +379,44 @@ def test_main_window_exports_jig_sheet_pdf(tmp_path) -> None:
         assert "RDG_WHITE" in all_objects
 
     window.close()
+
+
+def test_sheet_print_and_cut_share_counter_number(monkeypatch, tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    monkeypatch.setattr(
+        "printer_nester.ui.main_window.load_export_counter", lambda: 75
+    )
+    saved_counters = []
+    monkeypatch.setattr(
+        "printer_nester.ui.main_window.save_export_counter",
+        saved_counters.append,
+    )
+    image_path = tmp_path / "paired-art.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(
+        image_path, dpi=(100, 100)
+    )
+    print_dir = tmp_path / "print"
+    cut_dir = tmp_path / "cut"
+    temp_dir = tmp_path / "temp"
+
+    window = MainWindow()
+    item = window.viewport.add_image_file(image_path, QPointF(0, 0))
+    assert item is not None
+    window.artboard_panel._sheet_print_export_input.setText(str(print_dir))
+    window.artboard_panel._cut_export_input.setText(str(cut_dir))
+    window.artboard_panel._temp_export_input.setText(str(temp_dir))
+
+    window._export_sheet(0, "print")
+    window._export_sheet(0, "cut")
+
+    assert (print_dir / "sheet_075_print.pdf").exists()
+    assert (cut_dir / "sheet_075_cut.pdf").exists()
+    assert window._export_counter_input.value() == 76
+    assert saved_counters == [76]
+
+    window.close()
+
+
 def test_main_window_exports_jig_mockup_pdf(monkeypatch) -> None:
     QApplication.instance() or QApplication([])
     output_dir = Path("test_outputs") / "main_window_jig_mockup"
@@ -242,7 +436,7 @@ def test_main_window_exports_jig_mockup_pdf(monkeypatch) -> None:
         outside_margin_in=0.5,
     )
     window._add_profile(NestProfileKind.JIG, switch=True, slot_layout=slot_layout)
-    window.artboard_panel._print_export_input.setText(str(output_dir))
+    window.artboard_panel._jig_print_export_input.setText(str(output_dir))
     window.artboard_panel._temp_export_input.setText(str(output_dir / "temp"))
     monkeypatch.setattr(
         "printer_nester.ui.main_window.QFileDialog.getSaveFileName",
@@ -256,5 +450,73 @@ def test_main_window_exports_jig_mockup_pdf(monkeypatch) -> None:
         assert document.page_count == 1
         assert document[0].rect.width == pytest.approx(slot_layout.total_width_in * 72)
         assert document[0].get_images() == []
+
+    window.close()
+
+def test_main_window_refreshes_printnode_printer_choices(monkeypatch) -> None:
+    QApplication.instance() or QApplication([])
+    monkeypatch.setattr(
+        "printer_nester.ui.artboard_panel.load_label_printer_id", lambda: ""
+    )
+    window = MainWindow()
+    window._add_profile(NestProfileKind.JIG, switch=True)
+    monkeypatch.setattr(
+        "printer_nester.ui.main_window.list_printnode_printers",
+        lambda: [
+            PrintNodePrinter(
+                "123",
+                "Shipping Labels",
+                computer_name="Pack Station",
+                state="online",
+            )
+        ],
+    )
+
+    window._refresh_label_printers()
+
+    assert window.artboard_panel.label_printer_id() == "123"
+    assert "Loaded 1 PrintNode printer" in window.statusBar().currentMessage()
+
+    window.close()
+
+
+def test_main_window_prints_jig_sheet_order_labels(monkeypatch, tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "art.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(
+        image_path, dpi=(100, 100)
+    )
+    window = MainWindow()
+    slot_layout = SlotLayoutSettings(
+        slot_width_in=1,
+        slot_height_in=1,
+        slot_margin_in=0,
+        horizontal_spacing_in=0,
+        vertical_spacing_in=0,
+        columns=1,
+        rows=1,
+        outside_margin_in=0,
+    )
+    window._add_profile(NestProfileKind.JIG, switch=True, slot_layout=slot_layout)
+    item = window.viewport.add_image_file(image_path, QPointF(0, 0))
+    assert item is not None
+    item.setData(HOT_FOLDER_ORDER_DATA_KEY, "ORDER-1")
+    window.artboard_panel.set_label_printer_id("123")
+    calls = []
+    saved = []
+    monkeypatch.setattr(
+        "printer_nester.ui.main_window.print_order_labels",
+        lambda printer_id, orders: calls.append((printer_id, orders)) or 987,
+    )
+    monkeypatch.setattr(
+        "printer_nester.ui.main_window.save_label_printer_id",
+        lambda printer_id: saved.append(printer_id),
+    )
+
+    window._print_jig_sheet_labels(0)
+
+    assert calls == [("123", ["ORDER-1"])]
+    assert saved == ["123"]
+    assert "Submitted labels for sheet 1: job 987" in window.statusBar().currentMessage()
 
     window.close()

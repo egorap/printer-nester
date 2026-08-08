@@ -101,12 +101,25 @@ class ItemPanel(QWidget):
         return True if value is None else bool(value)
 
     def remove_image_item(self, graphics_item) -> None:  # type: ignore[no-untyped-def]
-        for row in range(self._list.count()):
-            list_item = self._list.item(row)
-            if list_item.data(Qt.ItemDataRole.UserRole) is graphics_item:
-                self._list.takeItem(row)
-                self._refresh_row_selection_styles()
-                return
+        self.remove_image_items([graphics_item])
+
+    def remove_image_items(self, graphics_items: list) -> None:  # type: ignore[type-arg]
+        item_ids = {id(item) for item in graphics_items}
+        if not item_ids:
+            return
+
+        self._list.setUpdatesEnabled(False)
+        try:
+            for row in range(self._list.count() - 1, -1, -1):
+                list_item = self._list.item(row)
+                graphics_item = list_item.data(Qt.ItemDataRole.UserRole)
+                if id(graphics_item) in item_ids:
+                    self._list.takeItem(row)
+        finally:
+            self._list.setUpdatesEnabled(True)
+
+        self._refresh_row_selection_styles()
+        self._list.viewport().update()
 
     def select_image_item(self, graphics_item) -> None:  # type: ignore[no-untyped-def]
         if graphics_item is None:

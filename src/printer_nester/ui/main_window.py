@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from collections.abc import Iterable
 from dataclasses import dataclass
+import json
+import os
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSignalBlocker, QSize, Qt
+from PySide6.QtCore import QEvent, QPointF, QSignalBlocker, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
@@ -15,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QSpinBox,
     QStatusBar,
     QTabWidget,
     QToolBar,
@@ -23,6 +27,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from printer_nester.core.artwork_import import read_artwork_import_info
+from printer_nester.core.hot_folder import (
+    PreparedHotFolderPackage,
+    complete_hot_folder_package,
+    fail_hot_folder_package,
+    prepare_hot_folder_packages,
+)
+from printer_nester.core.label_print import list_printnode_printers, print_order_labels
 from printer_nester.core.nest_profile import NestProfileKind
 from printer_nester.core.pdf_export import (
     ExportKind,
@@ -36,12 +48,17 @@ from printer_nester.ui.preferences import (
     load_default_artboard,
     load_default_slot_layout,
     load_default_slot_mask_path,
+    load_export_counter,
+    save_export_counter,
+    save_label_printer_id,
 )
 from printer_nester.ui.ruler import RulerWidget
-from printer_nester.ui.viewport import PrintViewport, SheetPreset
+from printer_nester.ui.viewport import HOT_FOLDER_ORDER_DATA_KEY, PrintViewport, SheetPreset
 
 
 TOOLBAR_ICON_SIZE = 22
+HOT_FOLDER_POLL_INTERVAL_MS = 2_000
+HOT_FOLDER_AUTO_IMPORT_MIN_AGE_SECONDS = 1.0
 
 
 def _toolbar_icon(name: str) -> QIcon:
@@ -301,6 +318,7 @@ class ProfileTab:
     viewport: PrintViewport
     widget: QWidget
     exported_sheets: set[tuple[int, ExportKind]]
+    export_numbers: dict[int, int]
 
 
 class MainWindow(QMainWindow):
@@ -315,6 +333,8 @@ class MainWindow(QMainWindow):
         self._sheet_profile_count = 0
         self._jig_profile_count = 0
         self._profile_add_button: QToolButton | None = None
+        self._hot_folder_processing = False
+        self._importing_viewports: set[PrintViewport] = set()
         self.viewport: PrintViewport
 
         artboard = load_default_artboard()
@@ -344,7 +364,15 @@ class MainWindow(QMainWindow):
         self.artboard_panel.export_jig_mockup_requested.connect(
             self._export_jig_mockup
         )
-
+        self.artboard_panel.process_hot_folder_requested.connect(
+            self._process_hot_folder
+        )
+        self.artboard_panel.refresh_label_printers_requested.connect(
+            self._refresh_label_printers
+        )
+        self.artboard_panel.print_labels_requested.connect(
+            self._print_jig_sheet_labels
+        )
         artboard_dock = QDockWidget("Artboard", self)
         artboard_dock.setObjectName("artboardDock")
         artboard_dock.setWidget(self.artboard_panel)
@@ -374,6 +402,11 @@ class MainWindow(QMainWindow):
 
         self._add_profile(NestProfileKind.SHEET, switch=True, artboard=artboard)
         self.viewport.fit_sheet()
+
+        self._hot_folder_timer = QTimer(self)
+        self._hot_folder_timer.setInterval(HOT_FOLDER_POLL_INTERVAL_MS)
+        self._hot_folder_timer.timeout.connect(self._poll_hot_folder)
+        self._hot_folder_timer.start()
 
     def _build_profile_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
@@ -622,6 +655,22 @@ class MainWindow(QMainWindow):
             toolbar, "white-layer", "Preview White Layer", checkable=True
         )
         self._white_layer_action.toggled.connect(self._set_white_layer_preview_enabled)
+
+        toolbar.addSeparator()
+        counter_label = QLabel("Next sheet #")
+        counter_label.setToolTip("Number assigned to the next sheet export.")
+        toolbar.addWidget(counter_label)
+        self._export_counter_input = QSpinBox()
+        self._export_counter_input.setRange(1, 999_999_999)
+        self._export_counter_input.setValue(load_export_counter())
+        self._export_counter_input.setMinimumWidth(86)
+        self._export_counter_input.setToolTip(
+            "Sets the number used by the next sheet that is exported."
+        )
+        self._export_counter_input.valueChanged.connect(
+            lambda value: save_export_counter(value)
+        )
+        toolbar.addWidget(self._export_counter_input)
         return toolbar
 
     def _add_toolbar_action(
@@ -705,6 +754,7 @@ class MainWindow(QMainWindow):
             viewport=viewport,
             widget=widget,
             exported_sheets=set(),
+            export_numbers={},
         )
         self._profiles.append(profile)
         self._connect_profile_viewport(profile)
@@ -731,10 +781,16 @@ class MainWindow(QMainWindow):
                 viewport, item, path
             )
         )
-        viewport.image_removed.connect(
-            lambda item, viewport=viewport: self._handle_viewport_image_removed(
-                viewport, item
+        viewport.images_removed.connect(
+            lambda items, viewport=viewport: self._handle_viewport_images_removed(
+                viewport, items
             )
+        )
+        viewport.artwork_import_started.connect(
+            lambda viewport=viewport: self._handle_artwork_import_started(viewport)
+        )
+        viewport.artwork_import_finished.connect(
+            lambda viewport=viewport: self._handle_artwork_import_finished(viewport)
         )
         viewport.image_selection_changed.connect(
             lambda item, viewport=viewport: self._handle_viewport_selection_changed(
@@ -895,13 +951,19 @@ class MainWindow(QMainWindow):
             apply_default_rounding=self._active_profile().kind == NestProfileKind.SHEET,
         )
         self._show_image_added(item, path)
-        self._refresh_sheet_panel()
 
-    def _handle_viewport_image_removed(self, viewport: PrintViewport, item) -> None:  # type: ignore[no-untyped-def]
+    def _handle_artwork_import_started(self, viewport: PrintViewport) -> None:
+        self._importing_viewports.add(viewport)
+
+    def _handle_artwork_import_finished(self, viewport: PrintViewport) -> None:
+        self._importing_viewports.discard(viewport)
+        if viewport is self.viewport:
+            self._refresh_sheet_panel()
+
+    def _handle_viewport_images_removed(self, viewport: PrintViewport, items) -> None:  # type: ignore[no-untyped-def]
         if viewport is not self.viewport:
             return
-        self.item_panel.remove_image_item(item)
-        self._refresh_sheet_panel()
+        self.item_panel.remove_image_items(items)
 
     def _handle_viewport_selection_changed(self, viewport: PrintViewport, item) -> None:  # type: ignore[no-untyped-def]
         if viewport is not self.viewport:
@@ -919,7 +981,8 @@ class MainWindow(QMainWindow):
         profile = self._profile_for_viewport(viewport)
         if profile is not None:
             profile.exported_sheets.clear()
-        if viewport is self.viewport:
+            profile.export_numbers.clear()
+        if viewport is self.viewport and viewport not in self._importing_viewports:
             self._refresh_sheet_panel()
 
     def _select_image_item(self, item) -> None:  # type: ignore[no-untyped-def]
@@ -1026,6 +1089,184 @@ class MainWindow(QMainWindow):
         self._refresh_sheet_panel()
         self.statusBar().showMessage(f"Fill nest placed {placed} item(s).", 5000)
 
+    def _poll_hot_folder(self) -> None:
+        self._process_hot_folder(
+            show_empty_status=False,
+            min_package_age_seconds=HOT_FOLDER_AUTO_IMPORT_MIN_AGE_SECONDS,
+        )
+
+    def _process_hot_folder(
+        self,
+        *,
+        show_empty_status: bool = True,
+        min_package_age_seconds: float = 0.0,
+    ) -> None:
+        if self._hot_folder_processing:
+            return
+
+        profile = self._active_profile()
+        if profile.kind != NestProfileKind.JIG:
+            if show_empty_status:
+                self.statusBar().showMessage(
+                    "Hot folder processing is only available for jig profiles.", 5000
+                )
+            return
+
+        root = self.artboard_panel.hot_folder_root()
+        if root == Path("."):
+            if show_empty_status:
+                self.statusBar().showMessage(
+                    "Configure a hot folder before processing orders.", 6000
+                )
+            return
+
+        self._hot_folder_processing = True
+        try:
+            try:
+                scan = prepare_hot_folder_packages(
+                    root, min_age_seconds=min_package_age_seconds
+                )
+            except Exception as error:
+                if show_empty_status:
+                    self.statusBar().showMessage(f"Hot folder scan failed: {error}", 8000)
+                return
+
+            imported_orders = 0
+            imported_items = 0
+            failed_packages = len(scan.errors)
+            self.viewport.begin_artwork_import()
+            try:
+                for package in scan.packages:
+                    package_items = []
+                    try:
+                        package_items = self._import_hot_folder_package(package)
+                        completed = complete_hot_folder_package(package, root)
+                        self._retarget_hot_folder_items(
+                            package_items, package.extract_dir, completed.extract_dir
+                        )
+                    except Exception as error:
+                        if package_items:
+                            self.viewport.remove_image_items(package_items)
+                        fail_hot_folder_package(package, root, str(error))
+                        failed_packages += 1
+                        continue
+
+                    imported_orders += 1
+                    imported_items += len(package_items)
+            finally:
+                self.viewport.end_artwork_import()
+
+            if imported_orders == 0 and failed_packages == 0:
+                if show_empty_status:
+                    self.statusBar().showMessage(
+                        "No ready order ZIPs found in the hot folder.", 5000
+                    )
+                return
+
+            message = (
+                f"Hot folder imported {imported_orders} order(s), "
+                f"{imported_items} item(s)."
+            )
+            if failed_packages:
+                message += f" {failed_packages} package(s) failed."
+            self.statusBar().showMessage(message, 8000)
+        finally:
+            self._hot_folder_processing = False
+
+    def _import_hot_folder_package(self, package: PreparedHotFolderPackage) -> list[object]:
+        order = package.order
+        artwork_paths = order.expanded_artwork_paths()
+        if not artwork_paths:
+            raise ValueError(f"Order {order.order_number} has no artwork items")
+
+        for artwork_path in artwork_paths:
+            read_artwork_import_info(artwork_path)
+
+        slots_per_sheet = self.viewport.jig_slots_per_sheet()
+        if slots_per_sheet <= 0:
+            raise ValueError("The active jig layout has no slots")
+
+        remaining_slots = self.viewport.remaining_jig_slots_on_next_sheet()
+        if remaining_slots and len(artwork_paths) > remaining_slots:
+            self.viewport.reserve_remaining_jig_slots_on_next_sheet()
+
+        imported_items = []
+        try:
+            for artwork_path in artwork_paths:
+                item = self.viewport.add_artwork_file(artwork_path, QPointF(0, 0))
+                if item is None:
+                    raise ValueError(f"Could not import artwork: {artwork_path}")
+                item.setData(HOT_FOLDER_ORDER_DATA_KEY, order.order_number)
+                imported_items.append(item)
+        except Exception:
+            self.viewport.remove_image_items(imported_items)
+            raise
+
+        return imported_items
+
+    def _retarget_hot_folder_items(
+        self, items: Iterable[object], old_root: Path, new_root: Path
+    ) -> None:
+        for item in items:
+            old_path = Path(str(item.data(0)))
+            try:
+                relative_path = old_path.relative_to(old_root)
+            except ValueError:
+                continue
+            item.setData(0, str(new_root / relative_path))
+            self.item_panel.refresh_image_item(item)
+
+    def _refresh_label_printers(self) -> None:
+        try:
+            printers = list_printnode_printers()
+        except Exception as error:
+            self.statusBar().showMessage(
+                f"Could not load PrintNode printers: {error}", 8000
+            )
+            return
+
+        self.artboard_panel.set_label_printers(printers)
+        self.statusBar().showMessage(
+            f"Loaded {len(printers)} PrintNode printer(s).", 5000
+        )
+
+    def _print_jig_sheet_labels(self, sheet_index: int) -> None:
+        profile = self._active_profile_if(
+            NestProfileKind.JIG,
+            "Label printing is only available for jig profiles.",
+            5000,
+        )
+        if profile is None:
+            return
+
+        order_numbers = self._sheet_order_numbers(sheet_index)
+        if not order_numbers:
+            self.statusBar().showMessage(
+                f"Sheet {sheet_index + 1} has no hot-folder orders to print.", 5000
+            )
+            return
+
+        printer_id = self.artboard_panel.label_printer_id()
+        if not printer_id:
+            self.statusBar().showMessage(
+                "Select or enter a PrintNode label printer before printing labels.",
+                7000,
+            )
+            return
+
+        save_label_printer_id(printer_id)
+        try:
+            print_job_id = print_order_labels(printer_id, order_numbers)
+        except Exception as error:
+            self.statusBar().showMessage(
+                f"Label print failed for sheet {sheet_index + 1}: {error}", 9000
+            )
+            return
+
+        self.statusBar().showMessage(
+            f"Submitted labels for sheet {sheet_index + 1}: job {print_job_id}", 7000
+        )
+
     def _export_jig_mockup(self) -> None:
         profile = self._active_profile_if(
             NestProfileKind.JIG,
@@ -1042,8 +1283,8 @@ class MainWindow(QMainWindow):
 
         settings = self.artboard_panel.export_settings()
         default_dir = (
-            settings.print_directory
-            if str(settings.print_directory).strip()
+            settings.jig_print_directory
+            if str(settings.jig_print_directory).strip()
             else Path.cwd()
         )
         default_path = default_dir / "jig_mockup.pdf"
@@ -1090,12 +1331,15 @@ class MainWindow(QMainWindow):
             return
 
         kind = ExportKind(kind_name)
+        export_number = self._export_number_for_sheet(profile, sheet_index)
         try:
             result = export_sheet_pdf(
                 self.viewport.export_sheet_data(sheet_index),
                 kind,
                 self.artboard_panel.export_settings(),
+                export_number=export_number,
             )
+            self._commit_export_number(profile, sheet_index, export_number)
         except Exception as error:
             self.statusBar().showMessage(
                 f"Export failed for sheet {sheet_index + 1} {kind.value}: {error}", 8000
@@ -1118,13 +1362,16 @@ class MainWindow(QMainWindow):
             return
 
         settings = self.artboard_panel.export_settings()
+        export_number = self._export_number_for_sheet(profile, sheet_index)
         try:
-            destination = self._jig_sheet_destination(settings, sheet_index)
+            destination = self._jig_sheet_destination(settings, export_number)
             result = export_jig_layout_pdf(
                 [self.viewport.export_sheet_data(sheet_index)],
                 destination,
                 settings.local_temp_directory,
             )
+            self._commit_export_number(profile, sheet_index, export_number)
+            self._write_jig_order_correlation(sheet_index, result.path)
         except Exception as error:
             self.statusBar().showMessage(
                 f"Jig export failed for sheet {sheet_index + 1}: {error}", 8000
@@ -1137,10 +1384,72 @@ class MainWindow(QMainWindow):
             f"Exported jig sheet {sheet_index + 1}: {result.path}", 7000
         )
 
-    def _jig_sheet_destination(self, settings, sheet_index: int) -> Path:  # type: ignore[no-untyped-def]
-        if not str(settings.print_directory).strip() or settings.print_directory == Path("."):
-            raise ValueError("print export directory is not configured")
-        return settings.print_directory / f"jig_sheet_{sheet_index + 1:03d}.pdf"
+    def _jig_sheet_destination(self, settings, export_number: int) -> Path:  # type: ignore[no-untyped-def]
+        if (
+            not str(settings.jig_print_directory).strip()
+            or settings.jig_print_directory == Path(".")
+        ):
+            raise ValueError("jig print export directory is not configured")
+        return (
+            settings.jig_print_directory
+            / f"jig_sheet_{export_number:03d}.pdf"
+        )
+
+    def _export_number_for_sheet(self, profile: ProfileTab, sheet_index: int) -> int:
+        return profile.export_numbers.get(
+            sheet_index, self._export_counter_input.value()
+        )
+
+    def _commit_export_number(
+        self, profile: ProfileTab, sheet_index: int, export_number: int
+    ) -> None:
+        if sheet_index in profile.export_numbers:
+            return
+        profile.export_numbers[sheet_index] = export_number
+        if self._export_counter_input.value() <= export_number:
+            self._export_counter_input.setValue(export_number + 1)
+
+    def _write_jig_order_correlation(self, sheet_index: int, pdf_path: Path) -> Path | None:
+        order_numbers = self._sheet_order_numbers(sheet_index)
+        if not order_numbers:
+            return None
+
+        payload = {
+            "sheet_index": sheet_index,
+            "sheet_number": sheet_index + 1,
+            "sheet_file": pdf_path.name,
+            "orders": order_numbers,
+        }
+        destination = self._next_available_sidecar_path(
+            pdf_path.with_name(f"{pdf_path.stem}_orders.json")
+        )
+        with destination.open("x", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        return destination
+
+    def _sheet_order_numbers(self, sheet_index: int) -> list[str]:
+        order_numbers = set()
+        for item in self.viewport.image_items():
+            if self.viewport.item_sheet_index(item) != sheet_index:
+                continue
+            order_number = item.data(HOT_FOLDER_ORDER_DATA_KEY)
+            if order_number:
+                order_numbers.add(str(order_number))
+        return sorted(order_numbers)
+
+    def _next_available_sidecar_path(self, destination: Path) -> Path:
+        if not destination.exists():
+            return destination
+        for index in range(1, 10_000):
+            candidate = destination.with_name(
+                f"{destination.stem}_{index:03d}{destination.suffix}"
+            )
+            if not candidate.exists():
+                return candidate
+        raise FileExistsError(f"No available sidecar filename near {destination}")
 
     def _export_all_pending(self) -> None:
         profile = self._active_profile()
@@ -1150,12 +1459,17 @@ class MainWindow(QMainWindow):
             for sheet_index in self.viewport.exportable_sheet_indices():
                 if (sheet_index, ExportKind.PRINT) in profile.exported_sheets:
                     continue
+                export_number = self._export_number_for_sheet(profile, sheet_index)
                 try:
-                    export_jig_layout_pdf(
+                    result = export_jig_layout_pdf(
                         [self.viewport.export_sheet_data(sheet_index)],
-                        self._jig_sheet_destination(settings, sheet_index),
+                        self._jig_sheet_destination(settings, export_number),
                         settings.local_temp_directory,
                     )
+                    self._commit_export_number(
+                        profile, sheet_index, export_number
+                    )
+                    self._write_jig_order_correlation(sheet_index, result.path)
                 except Exception as error:
                     self.statusBar().showMessage(
                         f"Export all stopped on jig sheet {sheet_index + 1}: {error}",
@@ -1179,6 +1493,7 @@ class MainWindow(QMainWindow):
 
         exported = 0
         for sheet_index in self.viewport.exportable_sheet_indices():
+            export_number = self._export_number_for_sheet(profile, sheet_index)
             for kind in (ExportKind.PRINT, ExportKind.CUT):
                 if (sheet_index, kind) in profile.exported_sheets:
                     continue
@@ -1187,6 +1502,10 @@ class MainWindow(QMainWindow):
                         self.viewport.export_sheet_data(sheet_index),
                         kind,
                         self.artboard_panel.export_settings(),
+                        export_number=export_number,
+                    )
+                    self._commit_export_number(
+                        profile, sheet_index, export_number
                     )
                 except Exception as error:
                     self.statusBar().showMessage(
@@ -1204,19 +1523,27 @@ class MainWindow(QMainWindow):
 
     def _refresh_sheet_panel(self) -> None:
         profile = self._active_profile()
-        rows = [
-            SheetPanelRow(
-                sheet_index=sheet_index,
-                item_count=item_count,
-                ready=ready,
-                print_exported=(sheet_index, ExportKind.PRINT)
-                in profile.exported_sheets,
-                cut_exported=(sheet_index, ExportKind.CUT) in profile.exported_sheets,
-                thumbnail=self.viewport.sheet_thumbnail(sheet_index),
+        rows: list[SheetPanelRow] = []
+        for sheet_index, item_count, ready in self.viewport.sheet_item_summary():
+            rows.append(
+                SheetPanelRow(
+                    sheet_index=sheet_index,
+                    item_count=item_count,
+                    ready=ready,
+                    print_exported=(sheet_index, ExportKind.PRINT)
+                    in profile.exported_sheets,
+                    cut_exported=(sheet_index, ExportKind.CUT)
+                    in profile.exported_sheets,
+                    thumbnail=self.viewport.sheet_thumbnail(sheet_index),
+                    order_numbers=tuple(
+                        self._sheet_order_numbers(sheet_index)
+                        if profile.kind == NestProfileKind.JIG
+                        else []
+                    ),
+                )
             )
-            for sheet_index, item_count, ready in self.viewport.sheet_item_summary()
-        ]
         self.artboard_panel.set_sheet_rows(rows)
+
     def _build_canvas_area(
         self, viewport: PrintViewport, kind: NestProfileKind
     ) -> QWidget:

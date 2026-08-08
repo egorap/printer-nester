@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -33,10 +34,14 @@ from printer_nester.core.item_transform import ItemTransform
 from printer_nester.core.pdf_export import ExportSettings
 from printer_nester.ui.preferences import (
     load_export_settings,
+    load_hot_folder_root,
+    load_label_printer_id,
     save_default_artboard,
     save_default_slot_layout,
     save_default_slot_mask_path,
     save_export_settings,
+    save_hot_folder_root,
+    save_label_printer_id,
 )
 
 
@@ -48,12 +53,16 @@ class SheetPanelRow:
     print_exported: bool
     cut_exported: bool
     thumbnail: QPixmap | None = None
+    order_numbers: tuple[str, ...] = ()
 
 
 class ArtboardPanel(QWidget):
     artboard_changed = Signal(object)
     export_all_requested = Signal()
     export_jig_mockup_requested = Signal()
+    process_hot_folder_requested = Signal()
+    refresh_label_printers_requested = Signal()
+    print_labels_requested = Signal(int)
     slot_layout_changed = Signal(object)
     jig_mask_changed = Signal(object)
     export_sheet_requested = Signal(int, str)
@@ -72,6 +81,8 @@ class ArtboardPanel(QWidget):
         self._transform_aspect_ratio = 1.0
         self._sheet_list_layout: QVBoxLayout | None = None
         self._slot_mask_input: QLineEdit | None = None
+        self._hot_folder_input: QLineEdit | None = None
+        self._label_printer_combo: QComboBox | None = None
         self._profile_kind = NestProfileKind.SHEET
         self.setMinimumWidth(360)
         self.setMaximumWidth(520)
@@ -147,6 +158,68 @@ class ArtboardPanel(QWidget):
             return
         self._slot_mask_input.setText(str(path) if path is not None else "")
 
+    def hot_folder_root(self) -> Path:
+        if self._hot_folder_input is None:
+            return Path()
+        value = self._hot_folder_input.text().strip()
+        return Path(value) if value else Path()
+
+    def set_hot_folder_root(self, root: Path) -> None:
+        if self._hot_folder_input is None:
+            return
+        self._hot_folder_input.setText("" if root == Path(".") else str(root))
+
+    def label_printer_id(self) -> str:
+        if self._label_printer_combo is None:
+            return ""
+        current_text = self._label_printer_combo.currentText().strip()
+        current_index = self._label_printer_combo.currentIndex()
+        if (
+            current_index >= 0
+            and self._label_printer_combo.itemText(current_index) == current_text
+        ):
+            current_data = self._label_printer_combo.currentData()
+            if current_data is not None:
+                return str(current_data).strip()
+        return current_text
+
+    def set_label_printer_id(self, printer_id: str) -> None:
+        if self._label_printer_combo is None:
+            return
+        printer_id = str(printer_id).strip()
+        index = self._label_printer_combo.findData(printer_id)
+        if index >= 0:
+            self._label_printer_combo.setCurrentIndex(index)
+            return
+        if printer_id:
+            self._label_printer_combo.setCurrentIndex(-1)
+            self._label_printer_combo.setEditText(printer_id)
+        else:
+            self._label_printer_combo.setEditText("")
+
+    def set_label_printers(self, printers: list[object]) -> None:
+        if self._label_printer_combo is None:
+            return
+
+        selected_id = self.label_printer_id() or load_label_printer_id()
+        self._label_printer_combo.blockSignals(True)
+        self._label_printer_combo.clear()
+        for printer in printers:
+            printer_id = str(getattr(printer, "printer_id", "")).strip()
+            if not printer_id:
+                continue
+            display_name = str(getattr(printer, "display_name", printer_id)).strip()
+            self._label_printer_combo.addItem(
+                f"{printer_id} - {display_name}", printer_id
+            )
+        if selected_id and self._label_printer_combo.findData(selected_id) < 0:
+            self._label_printer_combo.addItem(selected_id, selected_id)
+        self._label_printer_combo.blockSignals(False)
+        if selected_id:
+            self.set_label_printer_id(selected_id)
+        elif self._label_printer_combo.count() > 0:
+            self._label_printer_combo.setCurrentIndex(0)
+
     def set_profile_kind(self, kind: NestProfileKind | str) -> None:
         self._profile_kind = NestProfileKind(kind)
         is_jig = self._profile_kind == NestProfileKind.JIG
@@ -155,8 +228,10 @@ class ArtboardPanel(QWidget):
         self._slot_layout_section.setVisible(is_jig)
         self._transform_section.setVisible(not is_jig)
         self._export_settings_title.setText(
-            "Print Export" if is_jig else "Export Folders"
+            "Jig Print Export" if is_jig else "Sheet Export Folders"
         )
+        self._sheet_print_export_row.setVisible(not is_jig)
+        self._jig_print_export_row.setVisible(is_jig)
         self._cut_export_row.setVisible(not is_jig)
         self._temp_export_row.setVisible(not is_jig)
         self._save_default_button.setToolTip(
@@ -356,10 +431,67 @@ class ArtboardPanel(QWidget):
         )
         mockup_button.clicked.connect(self.export_jig_mockup_requested.emit)
 
+        hot_folder_title = QLabel("Hot Folder")
+        hot_folder_title.setObjectName("sectionTitle")
+        hot_folder_root = load_hot_folder_root()
+        self._hot_folder_input = QLineEdit(
+            "" if hot_folder_root == Path(".") else str(hot_folder_root)
+        )
+        self._hot_folder_input.setPlaceholderText("Order package folder")
+        browse_hot_folder_button = QPushButton("Browse")
+        browse_hot_folder_button.clicked.connect(
+            lambda _checked=False: self._browse_for_folder(self._hot_folder_input)
+        )
+        process_hot_folder_button = QPushButton("Process Orders")
+        process_hot_folder_button.setToolTip(
+            "Imports ready order ZIPs from the configured hot folder."
+        )
+        process_hot_folder_button.clicked.connect(self._process_hot_folder)
+        hot_folder_row = QHBoxLayout()
+        hot_folder_row.setContentsMargins(0, 0, 0, 0)
+        hot_folder_row.setSpacing(6)
+        hot_folder_row.addWidget(self._hot_folder_input, 1)
+        hot_folder_row.addWidget(browse_hot_folder_button)
+
+        label_printer_title = QLabel("Label Printer")
+        label_printer_title.setObjectName("sectionTitle")
+        self._label_printer_combo = QComboBox()
+        self._label_printer_combo.setEditable(True)
+        self._label_printer_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._label_printer_combo.setPlaceholderText("Printer id")
+        saved_label_printer_id = load_label_printer_id()
+        if saved_label_printer_id:
+            self._label_printer_combo.addItem(
+                saved_label_printer_id, saved_label_printer_id
+            )
+            self._label_printer_combo.setCurrentIndex(0)
+        self._label_printer_combo.currentTextChanged.connect(
+            self._save_label_printer_id
+        )
+        refresh_printers_button = QPushButton("Refresh Printers")
+        refresh_printers_button.setToolTip(
+            "Loads available printers from PrintNode using PRINTNODE_KEY."
+        )
+        refresh_printers_button.clicked.connect(
+            self.refresh_label_printers_requested.emit
+        )
+        label_printer_row = QHBoxLayout()
+        label_printer_row.setContentsMargins(0, 0, 0, 0)
+        label_printer_row.setSpacing(6)
+        label_printer_row.addWidget(self._label_printer_combo, 1)
+        label_printer_row.addWidget(refresh_printers_button)
+
         layout.addWidget(mask_title)
         layout.addLayout(mask_row)
         layout.addSpacing(6)
         layout.addWidget(mockup_button)
+        layout.addSpacing(6)
+        layout.addWidget(hot_folder_title)
+        layout.addLayout(hot_folder_row)
+        layout.addWidget(process_hot_folder_button)
+        layout.addSpacing(6)
+        layout.addWidget(label_printer_title)
+        layout.addLayout(label_printer_row)
         for input_widget in (
             self._slot_width_input,
             self._slot_height_input,
@@ -576,7 +708,12 @@ class ArtboardPanel(QWidget):
 
     def export_settings(self) -> ExportSettings:
         return ExportSettings(
-            print_directory=Path(self._print_export_input.text().strip()),
+            sheet_print_directory=Path(
+                self._sheet_print_export_input.text().strip()
+            ),
+            jig_print_directory=Path(
+                self._jig_print_export_input.text().strip()
+            ),
             cut_directory=Path(self._cut_export_input.text().strip()),
             local_temp_directory=Path(self._temp_export_input.text().strip()),
         )
@@ -604,21 +741,37 @@ class ArtboardPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        title = QLabel("Export Folders")
+        title = QLabel("Sheet Export Folders")
         title.setObjectName("sectionTitle")
         self._export_settings_title = title
-        self._print_export_input = QLineEdit(str(settings.print_directory))
+        self._sheet_print_export_input = QLineEdit(
+            str(settings.sheet_print_directory)
+        )
+        self._jig_print_export_input = QLineEdit(
+            str(settings.jig_print_directory)
+        )
         self._cut_export_input = QLineEdit(str(settings.cut_directory))
         self._temp_export_input = QLineEdit(str(settings.local_temp_directory))
-        self._print_export_input.setPlaceholderText("Print PDF folder")
+        self._sheet_print_export_input.setPlaceholderText(
+            "Sheet print PDF folder"
+        )
+        self._jig_print_export_input.setPlaceholderText(
+            "Jig print PDF folder"
+        )
         self._cut_export_input.setPlaceholderText("Cut PDF folder")
         self._temp_export_input.setPlaceholderText("Local temp folder")
 
-        self._print_export_row = self._folder_row("Print", self._print_export_input)
+        self._sheet_print_export_row = self._folder_row(
+            "Print", self._sheet_print_export_input
+        )
+        self._jig_print_export_row = self._folder_row(
+            "Jig Print", self._jig_print_export_input
+        )
         self._cut_export_row = self._folder_row("Cut", self._cut_export_input)
         self._temp_export_row = self._folder_row("Temp", self._temp_export_input)
         layout.addWidget(title)
-        layout.addWidget(self._print_export_row)
+        layout.addWidget(self._sheet_print_export_row)
+        layout.addWidget(self._jig_print_export_row)
         layout.addWidget(self._cut_export_row)
         layout.addWidget(self._temp_export_row)
 
@@ -650,6 +803,14 @@ class ArtboardPanel(QWidget):
 
     def _save_export_settings(self) -> None:
         save_export_settings(self.export_settings())
+
+    def _process_hot_folder(self) -> None:
+        if self._hot_folder_input is not None and self._hot_folder_input.text().strip():
+            save_hot_folder_root(self.hot_folder_root())
+        self.process_hot_folder_requested.emit()
+
+    def _save_label_printer_id(self, *_args) -> None:  # type: ignore[no-untyped-def]
+        save_label_printer_id(self.label_printer_id())
 
     def _build_sheet_export_section(self) -> QWidget:
         section = QFrame()
@@ -821,7 +982,18 @@ class ArtboardPanel(QWidget):
                 lambda _checked=False,
                 index=sheet.sheet_index: self.export_sheet_requested.emit(index, "jig")
             )
+            label_button = QPushButton("Print Labels")
+            label_button.setObjectName("smallExportButton")
+            label_button.setToolTip(
+                "Prints labels for hot-folder orders on this jig sheet."
+            )
+            label_button.setEnabled(bool(sheet.order_numbers))
+            label_button.clicked.connect(
+                lambda _checked=False,
+                index=sheet.sheet_index: self.print_labels_requested.emit(index)
+            )
             actions.addWidget(jig_button)
+            actions.addWidget(label_button)
         else:
             print_button = QPushButton("Export Print")
             cut_button = QPushButton("Export Cut")

@@ -5,7 +5,18 @@ import math
 from pathlib import Path
 
 import fitz
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import (
+    QByteArray,
+    QBuffer,
+    QIODevice,
+    QPoint,
+    QPointF,
+    QRectF,
+    QSignalBlocker,
+    QSize,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import (
     QColor,
     QDragEnterEvent,
@@ -84,6 +95,7 @@ MIN_VIEWPORT_ZOOM = 0.01
 MAX_VIEWPORT_ZOOM = 8.0
 ITEM_ROTATION_DATA_KEY = 12
 IMAGE_ITEM_ORDER_DATA_KEY = 13
+HOT_FOLDER_ORDER_DATA_KEY = 14
 AUXILIARY_PIXMAP_DATA_KEY = 98
 WHITE_LAYER_PREVIEW_DATA_VALUE = "white-layer-preview"
 
@@ -181,6 +193,9 @@ class PrintViewport(QGraphicsView):
     sheet_layout_changed = Signal()
     image_added = Signal(object, str)
     image_removed = Signal(object)
+    images_removed = Signal(object)
+    artwork_import_started = Signal()
+    artwork_import_finished = Signal()
     image_selection_changed = Signal(object)
     image_transform_changed = Signal(object)
 
@@ -210,6 +225,8 @@ class PrintViewport(QGraphicsView):
         self._jig_mask_preview_enabled = True
         self._item_original_pixmaps: dict[QGraphicsPixmapItem, QPixmap] = {}
         self._next_image_item_order = 0
+        self._artwork_import_depth = 0
+        self._reserved_jig_slot_keys: set[tuple[int, int]] = set()
         self._jig_mask_revision = 0
         self._item_masked_pixmap_cache: dict[
             QGraphicsPixmapItem, tuple[tuple[object, ...], QPixmap]
@@ -328,6 +345,7 @@ class PrintViewport(QGraphicsView):
 
     def set_slot_layout(self, slot_layout: SlotLayoutSettings) -> None:
         self._slot_layout = slot_layout
+        self._reserved_jig_slot_keys.clear()
         self._sync_image_item_movable_flags()
         self.set_artboard(
             ArtboardSettings(
@@ -411,6 +429,18 @@ class PrintViewport(QGraphicsView):
         self, path: Path, scene_position: QPointF
     ) -> QGraphicsPixmapItem | None:
         return self.add_artwork_file(path, scene_position)
+
+    def begin_artwork_import(self) -> None:
+        self._artwork_import_depth += 1
+        if self._artwork_import_depth == 1:
+            self.artwork_import_started.emit()
+
+    def end_artwork_import(self) -> None:
+        if self._artwork_import_depth <= 0:
+            return
+        self._artwork_import_depth -= 1
+        if self._artwork_import_depth == 0:
+            self.artwork_import_finished.emit()
 
     def add_artwork_file(
         self, path: Path, scene_position: QPointF
@@ -519,18 +549,31 @@ class PrintViewport(QGraphicsView):
 
     def delete_selected_items(self) -> int:
         selected_items = [item for item in self._image_items() if item.isSelected()]
-        for item in selected_items:
-            self._item_original_pixmaps.pop(item, None)
-            self._item_masked_pixmap_cache.pop(item, None)
-            self._white_layer_preview_cache.pop(item, None)
-            self._scene.removeItem(item)
+        return self.remove_image_items(selected_items)
+
+    def remove_image_items(self, items: list[QGraphicsPixmapItem]) -> int:
+        removed_items = [item for item in items if item.scene() is self._scene]
+        if not removed_items:
+            return 0
+
+        # Removing selected graphics items emits selectionChanged synchronously.
+        # Block it here so highlights are rebuilt once after the whole batch.
+        with QSignalBlocker(self._scene):
+            for item in removed_items:
+                self._item_original_pixmaps.pop(item, None)
+                self._item_masked_pixmap_cache.pop(item, None)
+                self._white_layer_preview_cache.pop(item, None)
+                self._scene.removeItem(item)
+
+        for item in removed_items:
             self.image_removed.emit(item)
+        self.images_removed.emit(removed_items)
 
-        if selected_items:
-            self._ensure_trailing_empty_sheet()
-            self._refresh_artwork_scene()
-
-        return len(selected_items)
+        self._reserved_jig_slot_keys.clear()
+        self._ensure_trailing_empty_sheet()
+        self._refresh_artwork_scene()
+        self._emit_image_selection_changed()
+        return len(removed_items)
 
     def select_all_image_items(self) -> int:
         items = self._image_items()
@@ -548,6 +591,48 @@ class PrintViewport(QGraphicsView):
 
     def image_items(self) -> list[QGraphicsPixmapItem]:
         return self._image_items()
+
+    def item_sheet_index(self, item: QGraphicsPixmapItem) -> int | None:
+        return self._sheet_index_for_item(item)
+
+    def jig_slots_per_sheet(self) -> int:
+        if self._slot_layout is None:
+            return 0
+        return len(self.slot_rects(0))
+
+    def remaining_jig_slots_on_next_sheet(self) -> int:
+        if self._slot_layout is None:
+            return 0
+
+        blocked_slots = self._blocked_jig_slot_keys()
+        for sheet_index in range(self._sheet_count()):
+            remaining = sum(
+                1
+                for slot_index, _slot_rect in enumerate(self.slot_rects(sheet_index))
+                if (sheet_index, slot_index) not in blocked_slots
+            )
+            if remaining > 0:
+                return remaining
+
+        return self.jig_slots_per_sheet()
+
+    def reserve_remaining_jig_slots_on_next_sheet(self) -> bool:
+        if self._slot_layout is None:
+            return False
+
+        blocked_slots = self._blocked_jig_slot_keys()
+        for sheet_index in range(self._sheet_count()):
+            open_slots = [
+                (sheet_index, slot_index)
+                for slot_index, _slot_rect in enumerate(self.slot_rects(sheet_index))
+                if (sheet_index, slot_index) not in blocked_slots
+            ]
+            if open_slots:
+                self._reserved_jig_slot_keys.update(open_slots)
+                self._ensure_sheet_count(sheet_index + 2)
+                return True
+
+        return False
 
     def selected_image_item(self) -> QGraphicsPixmapItem | None:
         selected = self._selected_image_items()
@@ -1266,7 +1351,11 @@ class PrintViewport(QGraphicsView):
 
         scene_position = self.mapToScene(event.position().toPoint())
         progress = self._make_import_progress_dialog(len(paths))
-        added = self._import_artwork_batch(paths, scene_position, progress)
+        try:
+            added = self._import_artwork_batch(paths, scene_position, progress)
+        finally:
+            progress.close()
+            progress.deleteLater()
 
         if added:
             event.acceptProposedAction()
@@ -1673,10 +1762,10 @@ class PrintViewport(QGraphicsView):
         return matching, unmatched
 
     def _next_available_jig_slot_center(self) -> QPointF:
-        occupied_slots = self._occupied_jig_slot_keys()
+        blocked_slots = self._blocked_jig_slot_keys()
         for sheet_index in range(self._sheet_count()):
             for slot_index, slot_rect in enumerate(self.slot_rects(sheet_index)):
-                if (sheet_index, slot_index) not in occupied_slots:
+                if (sheet_index, slot_index) not in blocked_slots:
                     return slot_rect.center()
 
         sheet_index = self._sheet_count()
@@ -1685,6 +1774,9 @@ class PrintViewport(QGraphicsView):
         if slots:
             return slots[0].center()
         return self._sheet_rect_for_index(sheet_index).center()
+
+    def _blocked_jig_slot_keys(self) -> set[tuple[int, int]]:
+        return self._occupied_jig_slot_keys() | set(self._reserved_jig_slot_keys)
 
     def _occupied_jig_slot_keys(self) -> set[tuple[int, int]]:
         occupied: set[tuple[int, int]] = set()
@@ -2276,26 +2368,32 @@ class PrintViewport(QGraphicsView):
         spacing = 24
         added = 0
 
-        progress.setValue(0)
-        QApplication.processEvents()
-
-        for index, path in enumerate(paths):
-            if progress.wasCanceled():
-                break
-
-            progress.setLabelText(f"Importing {path.name}")
+        self.begin_artwork_import()
+        try:
+            progress.setValue(0)
             QApplication.processEvents()
 
-            offset_position = scene_position + QPointF(index * spacing, index * spacing)
-            if self.add_artwork_file(path, offset_position) is not None:
-                added += 1
+            for index, path in enumerate(paths):
+                if progress.wasCanceled():
+                    break
 
-            progress.setValue(index + 1)
-            QApplication.processEvents()
+                progress.setLabelText(f"Importing {path.name}")
+                QApplication.processEvents()
 
-        if not progress.wasCanceled():
-            progress.setValue(len(paths))
-        return added
+                offset_position = scene_position + QPointF(
+                    index * spacing, index * spacing
+                )
+                if self.add_artwork_file(path, offset_position) is not None:
+                    added += 1
+
+                progress.setValue(index + 1)
+                QApplication.processEvents()
+
+            if not progress.wasCanceled():
+                progress.setValue(len(paths))
+            return added
+        finally:
+            self.end_artwork_import()
 
     def _make_import_progress_dialog(self, total: int) -> QProgressDialog:
         progress = QProgressDialog("Importing artwork", "Cancel", 0, total, self)
