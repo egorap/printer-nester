@@ -1334,7 +1334,9 @@ class MainWindow(QMainWindow):
         export_number = self._export_number_for_sheet(profile, sheet_index)
         try:
             result = export_sheet_pdf(
-                self.viewport.export_sheet_data(sheet_index),
+                self.viewport.export_sheet_data(
+                    sheet_index, marker_pattern=export_number
+                ),
                 kind,
                 self.artboard_panel.export_settings(),
                 export_number=export_number,
@@ -1499,7 +1501,9 @@ class MainWindow(QMainWindow):
                     continue
                 try:
                     export_sheet_pdf(
-                        self.viewport.export_sheet_data(sheet_index),
+                        self.viewport.export_sheet_data(
+                            sheet_index, marker_pattern=export_number
+                        ),
                         kind,
                         self.artboard_panel.export_settings(),
                         export_number=export_number,

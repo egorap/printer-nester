@@ -1071,7 +1071,9 @@ class PrintViewport(QGraphicsView):
         painter.end()
         return pixmap
 
-    def export_sheet_data(self, sheet_index: int) -> ExportSheet:
+    def export_sheet_data(
+        self, sheet_index: int, marker_pattern: int | None = None
+    ) -> ExportSheet:
         sheet_rect = self._sheet_rect_for_index(sheet_index)
         sheet_top_left = sheet_rect.topLeft()
         artworks: list[ExportArtwork] = []
@@ -1126,7 +1128,9 @@ class PrintViewport(QGraphicsView):
                 center_y=position.y() - sheet_top_left.y(),
                 diameter_mm=MARKER_DIAMETER_MM,
             )
-            for position in self._sheet_marker_positions(sheet_index)
+            for position in self._sheet_marker_positions(
+                sheet_index, marker_pattern=marker_pattern
+            )
         ]
         return ExportSheet(
             sheet_index=sheet_index,
@@ -2290,7 +2294,9 @@ class PrintViewport(QGraphicsView):
                 self._scene.addItem(item)
                 self._marker_items.append(item)
 
-    def _sheet_marker_positions(self, sheet_index: int) -> list[QPointF]:
+    def _sheet_marker_positions(
+        self, sheet_index: int, marker_pattern: int | None = None
+    ) -> list[QPointF]:
         if self._slot_layout is not None:
             return []
 
@@ -2323,6 +2329,7 @@ class PrintViewport(QGraphicsView):
             padded_bounds.width() / POINTS_PER_INCH,
             padded_bounds.height() / POINTS_PER_INCH,
             0,
+            pattern_key=marker_pattern,
         )
         return [
             QPointF(

@@ -1294,6 +1294,42 @@ def test_sheet_marker_layout_places_corners_asymmetry_marker_and_limits_gaps() -
     )
 
 
+def test_sheet_marker_layout_varies_signature_by_export_number() -> None:
+    first = sheet_marker_layout(46, 24, 0, pattern_key=100)
+    matching = sheet_marker_layout(46, 24, 0, pattern_key=100)
+    next_sheet = sheet_marker_layout(46, 24, 0, pattern_key=101)
+
+    first_positions = [
+        (marker.center_x_in, marker.center_y_in) for marker in first
+    ]
+    matching_positions = [
+        (marker.center_x_in, marker.center_y_in) for marker in matching
+    ]
+    next_positions = [
+        (marker.center_x_in, marker.center_y_in) for marker in next_sheet
+    ]
+
+    base = sheet_marker_layout(46, 24, 0)
+    inset = (MARKER_DIAMETER_MM / 25.4) / 2
+    fixed_offset = (inset, 24 - inset - 4)
+
+    assert first_positions == matching_positions
+    assert first_positions != next_positions
+    assert len(first) == len(base) + 1
+    assert len(next_sheet) == len(base) + 1
+    assert any(
+        x == pytest.approx(fixed_offset[0])
+        and y == pytest.approx(fixed_offset[1])
+        for x, y in first_positions
+    )
+    assert any(
+        x == pytest.approx(fixed_offset[0])
+        and y == pytest.approx(fixed_offset[1])
+        for x, y in next_positions
+    )
+    assert first_positions[-1][0] != next_positions[-1][0]
+
+
 def test_viewport_draws_markers_around_items_on_occupied_sheets() -> None:
     QApplication.instance() or QApplication([])
     output_dir = Path("test_outputs") / "content_markers"
@@ -2410,10 +2446,23 @@ def test_export_sheet_pdf_writes_print_and_cut_layers() -> None:
         assert document[0].rect.height < sheet.height_points
         layer_names = {layer["name"] for layer in document.get_ocgs().values()}
         assert layer_names == {"Artwork", "Markers"}
+        assert document[0].get_text().count("sheet_027_cut.pdf") == 2
+        label_blocks = [
+            block
+            for block in document[0].get_text("blocks")
+            if "sheet_027_cut.pdf" in block[4]
+        ]
+        marker_height = (MARKER_DIAMETER_MM / 25.4) * 72
+        assert len(label_blocks) == 2
+        assert all(
+            block[3] - block[1] == pytest.approx(marker_height, abs=0.1)
+            for block in label_blocks
+        )
     with fitz.open(cut_result.path) as document:
         assert document.page_count == 1
         layer_names = {layer["name"] for layer in document.get_ocgs().values()}
         assert layer_names == {"Cut Lines", "Markers"}
+        assert "sheet_027_cut.pdf" not in document[0].get_text()
 
 
 def test_export_sheet_pdf_never_overwrites_existing_file() -> None:

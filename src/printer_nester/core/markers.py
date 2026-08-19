@@ -7,6 +7,9 @@ import math
 MM_PER_INCH = 25.4
 MARKER_DIAMETER_MM = 5.0
 ASYMMETRY_MARKER_OFFSET_IN = 4.0
+SIGNATURE_EDGE_FRACTION = 0.18
+SIGNATURE_PHASE_STEP = 0.6180339887498949
+SIGNATURE_MIN_SEPARATION_IN = 0.5
 MAX_MARKER_GAP_IN = 20.0
 
 
@@ -17,7 +20,12 @@ class SheetMarker:
     diameter_mm: float = MARKER_DIAMETER_MM
 
 
-def sheet_marker_layout(width_in: float, height_in: float, margin_in: float) -> list[SheetMarker]:
+def sheet_marker_layout(
+    width_in: float,
+    height_in: float,
+    margin_in: float,
+    pattern_key: int | None = None,
+) -> list[SheetMarker]:
     if width_in <= 0 or height_in <= 0:
         return []
 
@@ -47,7 +55,43 @@ def sheet_marker_layout(width_in: float, height_in: float, margin_in: float) -> 
     if top < asymmetry_y < bottom:
         positions.append((left, asymmetry_y))
 
+    if pattern_key is not None:
+        signature = _signature_marker_position(
+            left, top, right, bottom, positions, pattern_key
+        )
+        if signature is not None:
+            positions.append(signature)
+
     return [SheetMarker(x, y) for x, y in _dedupe_positions(positions)]
+
+
+def _signature_marker_position(
+    left: float,
+    top: float,
+    right: float,
+    bottom: float,
+    existing: list[tuple[float, float]],
+    pattern_key: int,
+) -> tuple[float, float] | None:
+    edge_height = bottom - top
+    if edge_height <= 0:
+        return None
+
+    key = abs(int(pattern_key))
+    side_x = left if key % 2 else right
+    usable_start = top + edge_height * SIGNATURE_EDGE_FRACTION
+    usable_length = edge_height * (1 - 2 * SIGNATURE_EDGE_FRACTION)
+    phase_key = key // 2
+    for attempt in range(12):
+        phase = ((phase_key + attempt) * SIGNATURE_PHASE_STEP) % 1.0
+        candidate = (side_x, usable_start + phase * usable_length)
+        if all(
+            math.hypot(candidate[0] - x, candidate[1] - y)
+            >= SIGNATURE_MIN_SEPARATION_IN
+            for x, y in existing
+        ):
+            return candidate
+    return None
 
 
 def _edge_positions(start: tuple[float, float], end: tuple[float, float]) -> list[tuple[float, float]]:

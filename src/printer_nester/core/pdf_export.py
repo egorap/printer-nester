@@ -17,6 +17,7 @@ from printer_nester.core.markers import MARKER_DIAMETER_MM, MM_PER_INCH
 
 MIN_FREE_SPACE_BYTES = 10 * 1024 * 1024
 EXPORT_MARKER_PADDING_IN = 0.5
+MARKER_TEXT_GAP_POINTS = 8.0
 JIG_LAYOUT_EXPORT_DPI = 300
 SPOT_COLOR_NAME = "RDG_WHITE"
 INVERT_BYTE_TABLE = bytes(range(255, -1, -1))
@@ -107,7 +108,13 @@ def export_sheet_pdf(
     _ensure_directory_writable(settings.local_temp_directory)
     _ensure_directory_writable(destination_dir)
 
-    local_path = _write_local_pdf(sheet, kind, settings.local_temp_directory)
+    cut_filename = f"sheet_{file_number:03d}_{ExportKind.CUT.value}.pdf"
+    local_path = _write_local_pdf(
+        sheet,
+        kind,
+        settings.local_temp_directory,
+        cut_filename=cut_filename if kind == ExportKind.PRINT else None,
+    )
     try:
         final_path = _commit_file(local_path, destination)
     finally:
@@ -122,7 +129,12 @@ def _ensure_configured_directory(directory: Path, label: str) -> None:
         raise ValueError(f"{label} is not configured")
 
 
-def _write_local_pdf(sheet: ExportSheet, kind: ExportKind, temp_dir: Path) -> Path:
+def _write_local_pdf(
+    sheet: ExportSheet,
+    kind: ExportKind,
+    temp_dir: Path,
+    cut_filename: str | None = None,
+) -> Path:
     _ensure_free_space(temp_dir, MIN_FREE_SPACE_BYTES)
     local_path = temp_dir / f"printer_nester_{kind.value}_{uuid.uuid4().hex}.pdf"
     sheet = _trim_sheet_to_markers(sheet)
@@ -137,6 +149,8 @@ def _write_local_pdf(sheet: ExportSheet, kind: ExportKind, temp_dir: Path) -> Pa
         cut_oc = document.add_ocg("Cut Lines")
         _draw_cut_layer(page, sheet.cut_segments, cut_oc)
     _draw_marker_layer(page, sheet.markers, marker_oc)
+    if kind == ExportKind.PRINT and cut_filename:
+        _draw_cut_filename_labels(page, sheet.markers, cut_filename, marker_oc)
 
     document.save(local_path)
     document.close()
@@ -258,6 +272,61 @@ def _draw_marker_layer(page: fitz.Page, markers: list[ExportMarker], oc: int) ->
             overlay=True,
             oc=oc,
         )
+
+
+def _draw_cut_filename_labels(
+    page: fitz.Page,
+    markers: list[ExportMarker],
+    cut_filename: str,
+    oc: int,
+) -> None:
+    if len(markers) < 2:
+        return
+
+    font = fitz.Font(fontname="helv")
+    marker_height = (MARKER_DIAMETER_MM / MM_PER_INCH) * 72
+    font_size = marker_height / (font.ascender - font.descender)
+    text_width = font.text_length(cut_filename, fontsize=font_size)
+    top_right = min(markers, key=lambda marker: (marker.center_y, -marker.center_x))
+    bottom_left = max(
+        markers, key=lambda marker: (marker.center_y, -marker.center_x)
+    )
+    baseline_offset = font_size * (font.ascender + font.descender) / 2
+    top_right_radius = (top_right.diameter_mm / MM_PER_INCH) * 72 / 2
+    bottom_left_radius = (bottom_left.diameter_mm / MM_PER_INCH) * 72 / 2
+
+    page.insert_text(
+        fitz.Point(
+            max(
+                1.0,
+                top_right.center_x
+                - top_right_radius
+                - MARKER_TEXT_GAP_POINTS
+                - text_width,
+            ),
+            top_right.center_y + baseline_offset,
+        ),
+        cut_filename,
+        fontsize=font_size,
+        fontname="helv",
+        color=(0, 0, 0),
+        overlay=True,
+        oc=oc,
+    )
+    page.insert_text(
+        fitz.Point(
+            bottom_left.center_x
+            + bottom_left_radius
+            + MARKER_TEXT_GAP_POINTS,
+            bottom_left.center_y + baseline_offset,
+        ),
+        cut_filename,
+        fontsize=font_size,
+        fontname="helv",
+        color=(0, 0, 0),
+        overlay=True,
+        oc=oc,
+    )
 
 
 def export_jig_layout_pdf(
