@@ -1768,16 +1768,30 @@ class PrintViewport(QGraphicsView):
     def _next_available_jig_slot_center(self) -> QPointF:
         blocked_slots = self._blocked_jig_slot_keys()
         for sheet_index in range(self._sheet_count()):
-            for slot_index, slot_rect in enumerate(self.slot_rects(sheet_index)):
+            for slot_index, slot_rect in self._jig_slots_in_nesting_order(
+                sheet_index
+            ):
                 if (sheet_index, slot_index) not in blocked_slots:
                     return slot_rect.center()
 
         sheet_index = self._sheet_count()
         self._ensure_sheet_count(sheet_index + 1)
-        slots = self.slot_rects(sheet_index)
+        slots = self._jig_slots_in_nesting_order(sheet_index)
         if slots:
-            return slots[0].center()
+            return slots[0][1].center()
         return self._sheet_rect_for_index(sheet_index).center()
+
+    def _jig_slots_in_nesting_order(
+        self, sheet_index: int
+    ) -> list[tuple[int, QRectF]]:
+        indexed_slots = list(enumerate(self.slot_rects(sheet_index)))
+        indexed_slots.sort(
+            key=lambda entry: (
+                -entry[1].center().y(),
+                -entry[1].center().x(),
+            )
+        )
+        return indexed_slots
 
     def _blocked_jig_slot_keys(self) -> set[tuple[int, int]]:
         return self._occupied_jig_slot_keys() | set(self._reserved_jig_slot_keys)

@@ -84,7 +84,7 @@ Required fields:
 
 `items[].quantity`: Optional positive integer. Defaults to `1`.
 
-The app does not generate packing labels yet. It only tracks which order numbers landed on each exported jig sheet.
+The app tracks which order numbers land on each jig sheet and submits their packing labels through PrintNode.
 
 ## Nesting Policy
 
@@ -98,30 +98,11 @@ If it does not fit, the app reserves the remaining slots and starts the order on
 
 If one order is larger than a single jig sheet, it fills consecutive sheets in item order. Later orders may use remaining slots only after the oversized order has finished.
 
-## Output Correlation
-
-When a jig sheet is exported, the app writes the PDF and, when that sheet contains hot-folder orders, a sidecar JSON file beside it:
-
-```text
-jig_sheet_001.pdf
-jig_sheet_001_orders.json
-```
-
-Example sidecar:
-
-```json
-{
-  "sheet_index": 0,
-  "sheet_number": 1,
-  "sheet_file": "jig_sheet_001.pdf",
-  "orders": ["10482", "10483"]
-}
-```
-
-The PDF exporter never overwrites existing files. If a name already exists, the new export receives a numeric suffix, and the sidecar follows that actual PDF name.
 ## Label Printing
 
 Jig sheets with hot-folder orders show a `Print Labels` button beside `Export Jig`. The button prints labels for the order numbers currently placed on that sheet.
+
+`Export All` writes each pending jig PDF and then submits the labels for the orders on that sheet. If label submission fails, the PDF remains marked as exported and the next `Export All` retries only the missing label job, avoiding a duplicate print file. No order-correlation JSON files are written to the export folder.
 
 Required environment variables:
 

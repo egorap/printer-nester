@@ -1989,10 +1989,45 @@ def test_jig_imports_center_items_in_slots_and_spills_to_next_sheet(tmp_path) ->
     assert first is not None
     assert second is not None
     assert third is not None
-    assert first.pos() == viewport.slot_rects(0)[0].center()
-    assert second.pos() == viewport.slot_rects(0)[1].center()
-    assert third.pos() == viewport.slot_rects(1)[0].center()
+    assert first.pos() == viewport.slot_rects(0)[1].center()
+    assert second.pos() == viewport.slot_rects(0)[0].center()
+    assert third.pos() == viewport.slot_rects(1)[1].center()
     assert viewport._sheet_count() == 3
+
+
+def test_jig_import_order_starts_bottom_right_and_fills_upward(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "jig-order.png"
+    Image.new("RGBA", (20, 20), (255, 0, 0, 255)).save(
+        image_path, dpi=(100, 100)
+    )
+    viewport = PrintViewport()
+    viewport.set_slot_layout(
+        SlotLayoutSettings(
+            slot_width_in=1,
+            slot_height_in=1,
+            slot_margin_in=0,
+            horizontal_spacing_in=0.25,
+            vertical_spacing_in=0.25,
+            columns=2,
+            rows=2,
+            outside_margin_in=0.5,
+        )
+    )
+
+    items = [
+        viewport.add_image_file(image_path, QPointF(0, 0))
+        for _index in range(4)
+    ]
+    slots = viewport.slot_rects(0)
+
+    assert all(item is not None for item in items)
+    assert [item.pos() for item in items] == [
+        slots[3].center(),
+        slots[2].center(),
+        slots[1].center(),
+        slots[0].center(),
+    ]
 
 
 def test_jig_slot_mask_clips_preview_and_export(tmp_path) -> None:

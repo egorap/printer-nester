@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from collections.abc import Iterable
 from dataclasses import dataclass
-import json
-import os
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPointF, QSignalBlocker, QSize, Qt, QTimer
@@ -318,6 +316,7 @@ class ProfileTab:
     viewport: PrintViewport
     widget: QWidget
     exported_sheets: set[tuple[int, ExportKind]]
+    labels_printed_sheets: set[int]
     export_numbers: dict[int, int]
 
 
@@ -754,6 +753,7 @@ class MainWindow(QMainWindow):
             viewport=viewport,
             widget=widget,
             exported_sheets=set(),
+            labels_printed_sheets=set(),
             export_numbers={},
         )
         self._profiles.append(profile)
@@ -981,6 +981,7 @@ class MainWindow(QMainWindow):
         profile = self._profile_for_viewport(viewport)
         if profile is not None:
             profile.exported_sheets.clear()
+            profile.labels_printed_sheets.clear()
             profile.export_numbers.clear()
         if viewport is self.viewport and viewport not in self._importing_viewports:
             self._refresh_sheet_panel()
@@ -1263,6 +1264,7 @@ class MainWindow(QMainWindow):
             )
             return
 
+        profile.labels_printed_sheets.add(sheet_index)
         self.statusBar().showMessage(
             f"Submitted labels for sheet {sheet_index + 1}: job {print_job_id}", 7000
         )
@@ -1373,7 +1375,6 @@ class MainWindow(QMainWindow):
                 settings.local_temp_directory,
             )
             self._commit_export_number(profile, sheet_index, export_number)
-            self._write_jig_order_correlation(sheet_index, result.path)
         except Exception as error:
             self.statusBar().showMessage(
                 f"Jig export failed for sheet {sheet_index + 1}: {error}", 8000
@@ -1411,82 +1412,95 @@ class MainWindow(QMainWindow):
         if self._export_counter_input.value() <= export_number:
             self._export_counter_input.setValue(export_number + 1)
 
-    def _write_jig_order_correlation(self, sheet_index: int, pdf_path: Path) -> Path | None:
-        order_numbers = self._sheet_order_numbers(sheet_index)
-        if not order_numbers:
-            return None
-
-        payload = {
-            "sheet_index": sheet_index,
-            "sheet_number": sheet_index + 1,
-            "sheet_file": pdf_path.name,
-            "orders": order_numbers,
-        }
-        destination = self._next_available_sidecar_path(
-            pdf_path.with_name(f"{pdf_path.stem}_orders.json")
-        )
-        with destination.open("x", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        return destination
-
     def _sheet_order_numbers(self, sheet_index: int) -> list[str]:
-        order_numbers = set()
+        order_numbers: list[str] = []
+        seen: set[str] = set()
         for item in self.viewport.image_items():
             if self.viewport.item_sheet_index(item) != sheet_index:
                 continue
             order_number = item.data(HOT_FOLDER_ORDER_DATA_KEY)
-            if order_number:
-                order_numbers.add(str(order_number))
-        return sorted(order_numbers)
-
-    def _next_available_sidecar_path(self, destination: Path) -> Path:
-        if not destination.exists():
-            return destination
-        for index in range(1, 10_000):
-            candidate = destination.with_name(
-                f"{destination.stem}_{index:03d}{destination.suffix}"
-            )
-            if not candidate.exists():
-                return candidate
-        raise FileExistsError(f"No available sidecar filename near {destination}")
+            value = str(order_number).strip() if order_number else ""
+            if value and value not in seen:
+                seen.add(value)
+                order_numbers.append(value)
+        return order_numbers
 
     def _export_all_pending(self) -> None:
         profile = self._active_profile()
         if profile.kind == NestProfileKind.JIG:
             exported = 0
+            labels_printed = 0
             settings = self.artboard_panel.export_settings()
-            for sheet_index in self.viewport.exportable_sheet_indices():
-                if (sheet_index, ExportKind.PRINT) in profile.exported_sheets:
+            sheet_indices = self.viewport.exportable_sheet_indices()
+            labels_pending = any(
+                self._sheet_order_numbers(sheet_index)
+                and sheet_index not in profile.labels_printed_sheets
+                for sheet_index in sheet_indices
+            )
+            printer_id = self.artboard_panel.label_printer_id()
+            if labels_pending and not printer_id:
+                self.statusBar().showMessage(
+                    "Select or enter a PrintNode label printer before exporting all.",
+                    7000,
+                )
+                return
+            if labels_pending:
+                save_label_printer_id(printer_id)
+
+            for sheet_index in sheet_indices:
+                pdf_pending = (
+                    sheet_index,
+                    ExportKind.PRINT,
+                ) not in profile.exported_sheets
+                order_numbers = self._sheet_order_numbers(sheet_index)
+                sheet_labels_pending = (
+                    bool(order_numbers)
+                    and sheet_index not in profile.labels_printed_sheets
+                )
+                if not pdf_pending and not sheet_labels_pending:
                     continue
-                export_number = self._export_number_for_sheet(profile, sheet_index)
-                try:
-                    result = export_jig_layout_pdf(
-                        [self.viewport.export_sheet_data(sheet_index)],
-                        self._jig_sheet_destination(settings, export_number),
-                        settings.local_temp_directory,
-                    )
-                    self._commit_export_number(
-                        profile, sheet_index, export_number
-                    )
-                    self._write_jig_order_correlation(sheet_index, result.path)
-                except Exception as error:
-                    self.statusBar().showMessage(
-                        f"Export all stopped on jig sheet {sheet_index + 1}: {error}",
-                        9000,
-                    )
-                    return
-                profile.exported_sheets.add((sheet_index, ExportKind.PRINT))
-                exported += 1
+
+                if pdf_pending:
+                    export_number = self._export_number_for_sheet(profile, sheet_index)
+                    try:
+                        export_jig_layout_pdf(
+                            [self.viewport.export_sheet_data(sheet_index)],
+                            self._jig_sheet_destination(settings, export_number),
+                            settings.local_temp_directory,
+                        )
+                        self._commit_export_number(profile, sheet_index, export_number)
+                    except Exception as error:
+                        self._refresh_sheet_panel()
+                        self.statusBar().showMessage(
+                            f"Export all stopped on jig sheet {sheet_index + 1}: {error}",
+                            9000,
+                        )
+                        return
+                    profile.exported_sheets.add((sheet_index, ExportKind.PRINT))
+                    exported += 1
+
+                if sheet_labels_pending:
+                    try:
+                        print_order_labels(printer_id, order_numbers)
+                    except Exception as error:
+                        self._refresh_sheet_panel()
+                        self.statusBar().showMessage(
+                            "Export all stopped after writing jig sheet "
+                            f"{sheet_index + 1}; label print failed: {error}",
+                            9000,
+                        )
+                        return
+                    profile.labels_printed_sheets.add(sheet_index)
+                    labels_printed += 1
 
             self._refresh_sheet_panel()
             self.statusBar().showMessage(
-                f"Export all complete: {exported} jig file(s) written.", 7000
+                "Export all complete: "
+                f"{exported} jig file(s) written, "
+                f"{labels_printed} label job(s) submitted.",
+                7000,
             )
             return
-
         if profile.kind != NestProfileKind.SHEET:
             self.statusBar().showMessage(
                 "Sheet export is only available for sheet profiles.", 5000
