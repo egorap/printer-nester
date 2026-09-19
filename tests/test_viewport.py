@@ -2337,7 +2337,15 @@ def test_artboard_panel_updates_jig_sheet_export_ui() -> None:
     panel.set_profile_kind(NestProfileKind.JIG)
     panel.set_sheet_rows(
         [
-            SheetPanelRow(0, 3, True, True, False, order_numbers=("A100",)),
+            SheetPanelRow(
+                0,
+                3,
+                True,
+                True,
+                False,
+                order_numbers=("A100",),
+                locked=True,
+            ),
             SheetPanelRow(1, 0, True, False, False),
         ]
     )
@@ -2347,9 +2355,11 @@ def test_artboard_panel_updates_jig_sheet_export_ui() -> None:
 
     assert "Jig Sheets" in labels
     assert "Jig PDF" in labels
+    assert "Locked" in labels
     assert "Export All" in buttons
     assert buttons.count("Export Jig") == 2
     assert buttons.count("Print Labels") == 2
+    assert buttons.count("Copy Orders") == 2
     label_buttons = [
         button
         for button in panel.findChildren(QPushButton)
@@ -2357,9 +2367,46 @@ def test_artboard_panel_updates_jig_sheet_export_ui() -> None:
     ]
     assert label_buttons[0].isEnabled()
     assert not label_buttons[1].isEnabled()
+    copy_buttons = [
+        button
+        for button in panel.findChildren(QPushButton)
+        if button.text() == "Copy Orders"
+    ]
+    assert copy_buttons[0].isEnabled()
+    assert not copy_buttons[1].isEnabled()
     assert "Export Print" not in buttons
     assert "Export Cut" not in buttons
     assert "Export Jig Layout PDF" not in buttons
+
+
+def test_locked_jig_sheet_is_skipped_for_new_artwork(tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    image_path = tmp_path / "locked-jig-art.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(
+        image_path, dpi=(100, 100)
+    )
+    viewport = PrintViewport(
+        slot_layout=SlotLayoutSettings(
+            slot_width_in=1,
+            slot_height_in=1,
+            slot_margin_in=0,
+            horizontal_spacing_in=0,
+            vertical_spacing_in=0,
+            columns=2,
+            rows=1,
+            outside_margin_in=0,
+        )
+    )
+    first = viewport.add_image_file(image_path, QPointF())
+    assert first is not None
+    assert viewport.item_sheet_index(first) == 0
+
+    viewport.set_jig_sheet_locked(0)
+    second = viewport.add_image_file(image_path, QPointF())
+
+    assert second is not None
+    assert viewport.is_jig_sheet_locked(0)
+    assert viewport.item_sheet_index(second) == 1
 
 
 
@@ -2550,6 +2597,7 @@ def test_export_sheet_pdf_trims_to_half_inch_outside_markers() -> None:
     )
     assert item is not None
     sheet = viewport.export_sheet_data(0)
+    displayed_width, displayed_height = viewport.sheet_print_file_size_inches(0)
     settings = ExportSettings(
         sheet_print_directory=print_dir,
         jig_print_directory=output_dir / "jig",
@@ -2575,6 +2623,9 @@ def test_export_sheet_pdf_trims_to_half_inch_outside_markers() -> None:
     )
     expected_width = min(sheet.width_points, marker_right) - max(0, marker_left)
     expected_height = min(sheet.height_points, marker_bottom) - max(0, marker_top)
+
+    assert displayed_width == pytest.approx(expected_width / 72)
+    assert displayed_height == pytest.approx(expected_height / 72)
 
     with fitz.open(result.path) as document:
         assert document[0].rect.width == pytest.approx(expected_width)

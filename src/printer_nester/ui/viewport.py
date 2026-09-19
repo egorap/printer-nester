@@ -18,6 +18,7 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import (
+    QBrush,
     QColor,
     QDragEnterEvent,
     QDragMoveEvent,
@@ -74,6 +75,7 @@ from printer_nester.core.markers import (
     sheet_marker_layout,
 )
 from printer_nester.core.pdf_export import (
+    EXPORT_MARKER_PADDING_IN,
     ExportArtwork,
     ExportMarker,
     ExportSegment,
@@ -154,7 +156,14 @@ class SlotOverlayItem(QGraphicsItem):
         super().__init__()
         self._slot_layout = slot_layout
         self._sheet_rect = QRectF(sheet_rect)
+        self._locked = False
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    def set_locked(self, locked: bool) -> None:
+        if self._locked == locked:
+            return
+        self._locked = locked
+        self.update()
 
     def set_layout(
         self, slot_layout: SlotLayoutSettings | None, sheet_rect: QRectF
@@ -184,6 +193,14 @@ class SlotOverlayItem(QGraphicsItem):
         painter.setBrush(QColor(14, 165, 233, 22))
         for rect in self.slot_rects():
             painter.drawRect(rect)
+        if self._locked:
+            lock_pen = QPen(QColor("#2563eb"), 2, Qt.PenStyle.DashLine)
+            lock_pen.setCosmetic(True)
+            painter.setPen(lock_pen)
+            painter.setBrush(
+                QBrush(QColor(37, 99, 235, 35), Qt.BrushStyle.BDiagPattern)
+            )
+            painter.drawRect(self._sheet_rect)
         painter.restore()
 
 
@@ -227,6 +244,8 @@ class PrintViewport(QGraphicsView):
         self._next_image_item_order = 0
         self._artwork_import_depth = 0
         self._reserved_jig_slot_keys: set[tuple[int, int]] = set()
+        self._locked_jig_sheet_indices: set[int] = set()
+        self._sheet_print_size_cache: dict[int, tuple[float, float]] = {}
         self._jig_mask_revision = 0
         self._item_masked_pixmap_cache: dict[
             QGraphicsPixmapItem, tuple[tuple[object, ...], QPixmap]
@@ -346,6 +365,7 @@ class PrintViewport(QGraphicsView):
     def set_slot_layout(self, slot_layout: SlotLayoutSettings) -> None:
         self._slot_layout = slot_layout
         self._reserved_jig_slot_keys.clear()
+        self._locked_jig_sheet_indices.clear()
         self._sync_image_item_movable_flags()
         self.set_artboard(
             ArtboardSettings(
@@ -395,6 +415,7 @@ class PrintViewport(QGraphicsView):
         emit_layout: bool = True,
         transform_items: list[QGraphicsPixmapItem] | None = None,
     ) -> None:
+        self._sheet_print_size_cache.clear()
         if refresh_all_masks:
             self._refresh_jig_masked_pixmaps()
         elif mask_items is not None:
@@ -599,6 +620,27 @@ class PrintViewport(QGraphicsView):
         if self._slot_layout is None:
             return 0
         return len(self.slot_rects(0))
+
+    def set_jig_sheet_locked(self, sheet_index: int, locked: bool = True) -> None:
+        if self._slot_layout is None or sheet_index < 0:
+            return
+        if locked:
+            self._locked_jig_sheet_indices.add(sheet_index)
+            self._ensure_sheet_count(sheet_index + 2)
+        else:
+            self._locked_jig_sheet_indices.discard(sheet_index)
+        self._refresh_jig_sheet_lock_overlays()
+        self.viewport().update()
+
+    def is_jig_sheet_locked(self, sheet_index: int) -> bool:
+        return sheet_index in self._locked_jig_sheet_indices
+
+    def clear_jig_sheet_locks(self) -> None:
+        if not self._locked_jig_sheet_indices:
+            return
+        self._locked_jig_sheet_indices.clear()
+        self._refresh_jig_sheet_lock_overlays()
+        self.viewport().update()
 
     def remaining_jig_slots_on_next_sheet(self) -> int:
         if self._slot_layout is None:
@@ -1702,17 +1744,99 @@ class PrintViewport(QGraphicsView):
             painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
             y += step
 
+    def sheet_print_file_size_inches(self, sheet_index: int) -> tuple[float, float]:
+        cached = self._sheet_print_size_cache.get(sheet_index)
+        if cached is not None:
+            return cached
+
+        sheet_rect = self._sheet_rect_for_index(sheet_index)
+        marker_positions = self._sheet_marker_positions(sheet_index)
+        if not marker_positions:
+            result = (self._sheet.width_in, self._sheet.height_in)
+        else:
+            radius = (MARKER_DIAMETER_MM / MM_PER_INCH) / 2
+            padding = EXPORT_MARKER_PADDING_IN
+            left = max(
+                sheet_rect.left(),
+                min(position.x() for position in marker_positions)
+                - (radius + padding) * POINTS_PER_INCH,
+            )
+            top = max(
+                sheet_rect.top(),
+                min(position.y() for position in marker_positions)
+                - (radius + padding) * POINTS_PER_INCH,
+            )
+            right = min(
+                sheet_rect.right(),
+                max(position.x() for position in marker_positions)
+                + (radius + padding) * POINTS_PER_INCH,
+            )
+            bottom = min(
+                sheet_rect.bottom(),
+                max(position.y() for position in marker_positions)
+                + (radius + padding) * POINTS_PER_INCH,
+            )
+            result = (
+                max(0.0, right - left) / POINTS_PER_INCH,
+                max(0.0, bottom - top) / POINTS_PER_INCH,
+            )
+
+        self._sheet_print_size_cache[sheet_index] = result
+        return result
+
     def _draw_sheet_labels(self, painter: QPainter) -> None:
         painter.save()
         painter.resetTransform()
+        font = QFont("Segoe UI", 9)
+        font.setBold(True)
+        painter.setFont(font)
 
-        top_left = self.mapFromScene(self._sheet.rect_points.topLeft())
-        painter.setPen(QPen(QColor("#5f6368")))
-        painter.setFont(QFont("Segoe UI", 9))
-        label = "Jig" if self._slot_layout is not None else "Artboard"
-        painter.drawText(
-            top_left.x(), top_left.y() - 12, f"{label} - {self._sheet.name}"
-        )
+        for sheet_index in range(self._sheet_count()):
+            sheet_rect = self._sheet_rect_for_index(sheet_index)
+            top_left = self.mapFromScene(sheet_rect.topLeft())
+            top_right = self.mapFromScene(sheet_rect.topRight())
+            visible_width = top_right.x() - top_left.x()
+            if visible_width < 90:
+                continue
+
+            if self._slot_layout is not None:
+                state = (
+                    " | LOCKED"
+                    if sheet_index in self._locked_jig_sheet_indices
+                    else ""
+                )
+                text = f"Jig {sheet_index + 1} | {self._sheet.name}{state}"
+            else:
+                print_width, print_height = self.sheet_print_file_size_inches(
+                    sheet_index
+                )
+                text = (
+                    f"Sheet {sheet_index + 1} | Artboard: "
+                    f"{self._sheet.width_in:.2f} x {self._sheet.height_in:.2f} in | "
+                    f"Print PDF: {print_width:.2f} x {print_height:.2f} in"
+                )
+
+            label_width = min(
+                max(90.0, visible_width),
+                painter.fontMetrics().horizontalAdvance(text) + 22.0,
+            )
+            label_rect = QRectF(top_left.x(), top_left.y() - 29, label_width, 23)
+            painter.fillRect(label_rect, QColor("#26323d"))
+            painter.fillRect(
+                QRectF(label_rect.left(), label_rect.top(), 4, label_rect.height()),
+                QColor("#22a6b3"),
+            )
+            painter.setPen(QColor("#ffffff"))
+            elided = painter.fontMetrics().elidedText(
+                text,
+                Qt.TextElideMode.ElideRight,
+                max(1, int(label_rect.width() - 16)),
+            )
+            painter.drawText(
+                label_rect.adjusted(10, 0, -6, 0),
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                elided,
+            )
         painter.restore()
 
     def _pasteboard_rect(self) -> QRectF:
@@ -1794,7 +1918,15 @@ class PrintViewport(QGraphicsView):
         return indexed_slots
 
     def _blocked_jig_slot_keys(self) -> set[tuple[int, int]]:
-        return self._occupied_jig_slot_keys() | set(self._reserved_jig_slot_keys)
+        blocked = self._occupied_jig_slot_keys() | set(
+            self._reserved_jig_slot_keys
+        )
+        for sheet_index in self._locked_jig_sheet_indices:
+            blocked.update(
+                (sheet_index, slot_index)
+                for slot_index in range(len(self.slot_rects(sheet_index)))
+            )
+        return blocked
 
     def _occupied_jig_slot_keys(self) -> set[tuple[int, int]]:
         occupied: set[tuple[int, int]] = set()
@@ -2067,6 +2199,10 @@ class PrintViewport(QGraphicsView):
 
     def _ensure_trailing_empty_sheet(self) -> None:
         occupied = self._occupied_sheet_indices()
+        if self._slot_layout is not None and self._locked_jig_sheet_indices:
+            retained = occupied | self._locked_jig_sheet_indices
+            self._set_sheet_count(max(retained) + 2 if retained else 1)
+            return
         if not occupied:
             self._set_sheet_count(1)
             self._ensure_sheet_count(1)
@@ -2167,6 +2303,7 @@ class PrintViewport(QGraphicsView):
             self._extra_slot_overlay_items.append(
                 self._create_extra_slot_overlay(sheet_index)
             )
+        self._refresh_jig_sheet_lock_overlays()
         self._refresh_sheet_markers()
 
     def _set_sheet_count(self, count: int) -> None:
@@ -2215,6 +2352,13 @@ class PrintViewport(QGraphicsView):
         overlay.setVisible(self._slot_layout is not None)
         self._scene.addItem(overlay)
         return overlay
+
+    def _refresh_jig_sheet_lock_overlays(self) -> None:
+        self._slot_overlay_item.set_locked(0 in self._locked_jig_sheet_indices)
+        for sheet_index, overlay in enumerate(
+            self._extra_slot_overlay_items, start=1
+        ):
+            overlay.set_locked(sheet_index in self._locked_jig_sheet_indices)
 
     def _refresh_extra_sheet_rects(self) -> None:
         shadow_offset = 12

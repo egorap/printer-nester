@@ -54,6 +54,7 @@ class SheetPanelRow:
     cut_exported: bool
     thumbnail: QPixmap | None = None
     order_numbers: tuple[str, ...] = ()
+    locked: bool = False
 
 
 class ArtboardPanel(QWidget):
@@ -63,6 +64,7 @@ class ArtboardPanel(QWidget):
     process_hot_folder_requested = Signal()
     refresh_label_printers_requested = Signal()
     print_labels_requested = Signal(int)
+    copy_order_numbers_requested = Signal(int)
     slot_layout_changed = Signal(object)
     jig_mask_changed = Signal(object)
     export_sheet_requested = Signal(int, str)
@@ -850,6 +852,10 @@ class ArtboardPanel(QWidget):
                 color: #dc2626;
                 font-weight: 700;
             }
+            QLabel[stateDot="locked"] {
+                color: #2563eb;
+                font-weight: 700;
+            }
             QFrame#sheetRow {
                 background: #ffffff;
                 border: 1px solid #d4d9df;
@@ -945,7 +951,11 @@ class ArtboardPanel(QWidget):
 
         is_jig = self._profile_kind == NestProfileKind.JIG
         state_values = (
-            [("Ready", sheet.ready), ("Jig PDF", sheet.print_exported)]
+            [
+                ("Ready", sheet.ready),
+                ("Jig PDF", sheet.print_exported),
+                ("Locked", sheet.locked),
+            ]
             if is_jig
             else [
                 ("Ready", sheet.ready),
@@ -961,7 +971,15 @@ class ArtboardPanel(QWidget):
             dot = QLabel("*")
             dot.setProperty(
                 "stateDot",
-                "ready" if ok else "warning" if label == "Ready" else "pending",
+                (
+                    "locked"
+                    if label == "Locked" and ok
+                    else "ready"
+                    if ok
+                    else "warning"
+                    if label == "Ready"
+                    else "pending"
+                ),
             )
             dot.setToolTip(f"{label}: {'done' if ok else 'pending'}")
             text = QLabel(label)
@@ -992,8 +1010,19 @@ class ArtboardPanel(QWidget):
                 lambda _checked=False,
                 index=sheet.sheet_index: self.print_labels_requested.emit(index)
             )
+            copy_orders_button = QPushButton("Copy Orders")
+            copy_orders_button.setObjectName("smallExportButton")
+            copy_orders_button.setToolTip(
+                "Copies this jig sheet's order numbers separated by semicolons."
+            )
+            copy_orders_button.setEnabled(bool(sheet.order_numbers))
+            copy_orders_button.clicked.connect(
+                lambda _checked=False,
+                index=sheet.sheet_index: self.copy_order_numbers_requested.emit(index)
+            )
             actions.addWidget(jig_button)
             actions.addWidget(label_button)
+            actions.addWidget(copy_orders_button)
         else:
             print_button = QPushButton("Export Print")
             cut_button = QPushButton("Export Cut")

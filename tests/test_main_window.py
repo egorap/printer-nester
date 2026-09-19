@@ -401,8 +401,13 @@ def test_main_window_exports_jig_sheet_pdf(monkeypatch, tmp_path) -> None:
 
     assert destination.exists()
     assert (0, ExportKind.PRINT) in window._active_profile().exported_sheets
+    assert window.viewport.is_jig_sheet_locked(0)
     assert window._export_counter_input.value() == 43
     assert not list(output_dir.glob("*_orders.json"))
+    next_item = window.viewport.add_image_file(image_path, QPointF(0, 0))
+    assert next_item is not None
+    assert window.viewport.item_sheet_index(next_item) == 1
+    assert (0, ExportKind.PRINT) in window._active_profile().exported_sheets
     with fitz.open(destination) as document:
         assert document.page_count == 1
         content = b"\n".join(
@@ -473,6 +478,7 @@ def test_export_all_writes_jig_pdf_and_prints_labels(monkeypatch, tmp_path) -> N
     assert not list(output_dir.glob("*.json"))
     assert calls == [("123", ["ORDER-1"])]
     assert (0, ExportKind.PRINT) in profile.exported_sheets
+    assert window.viewport.is_jig_sheet_locked(0)
     assert 0 in profile.labels_printed_sheets
     assert "1 label job(s) submitted" in window.statusBar().currentMessage()
 
@@ -685,5 +691,39 @@ def test_main_window_prints_jig_sheet_order_labels(monkeypatch, tmp_path) -> Non
     assert calls == [("123", ["ORDER-1"])]
     assert saved == ["123"]
     assert "Submitted labels for sheet 1: job 987" in window.statusBar().currentMessage()
+
+    window.close()
+
+
+def test_main_window_copies_jig_sheet_order_numbers_in_print_order(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    image_path = tmp_path / "art.png"
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(
+        image_path, dpi=(100, 100)
+    )
+    window = MainWindow()
+    window._add_profile(
+        NestProfileKind.JIG,
+        switch=True,
+        slot_layout=SlotLayoutSettings(
+            slot_width_in=1,
+            slot_height_in=1,
+            slot_margin_in=0,
+            horizontal_spacing_in=0,
+            vertical_spacing_in=0,
+            columns=2,
+            rows=1,
+            outside_margin_in=0,
+        ),
+    )
+    for order_number in ("ORDER-20", "ORDER-10"):
+        item = window.viewport.add_image_file(image_path, QPointF(0, 0))
+        assert item is not None
+        item.setData(HOT_FOLDER_ORDER_DATA_KEY, order_number)
+
+    window._copy_jig_sheet_order_numbers(0)
+
+    assert app.clipboard().text() == "ORDER-20; ORDER-10"
+    assert "Copied 2 order number(s) from sheet 1" in window.statusBar().currentMessage()
 
     window.close()

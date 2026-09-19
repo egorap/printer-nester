@@ -9,6 +9,7 @@ from PySide6.QtCore import QEvent, QPointF, QSignalBlocker, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
+    QApplication,
     QDockWidget,
     QFileDialog,
     QFrame,
@@ -371,6 +372,9 @@ class MainWindow(QMainWindow):
         )
         self.artboard_panel.print_labels_requested.connect(
             self._print_jig_sheet_labels
+        )
+        self.artboard_panel.copy_order_numbers_requested.connect(
+            self._copy_jig_sheet_order_numbers
         )
         artboard_dock = QDockWidget("Artboard", self)
         artboard_dock.setObjectName("artboardDock")
@@ -979,7 +983,7 @@ class MainWindow(QMainWindow):
 
     def _handle_viewport_layout_changed(self, viewport: PrintViewport) -> None:
         profile = self._profile_for_viewport(viewport)
-        if profile is not None:
+        if profile is not None and profile.kind == NestProfileKind.SHEET:
             profile.exported_sheets.clear()
             profile.labels_printed_sheets.clear()
             profile.export_numbers.clear()
@@ -1001,6 +1005,11 @@ class MainWindow(QMainWindow):
     def _set_active_slot_layout(self, slot_layout) -> None:  # type: ignore[no-untyped-def]
         if self._active_profile().kind != NestProfileKind.JIG:
             return
+        profile = self._active_profile()
+        profile.exported_sheets.clear()
+        profile.labels_printed_sheets.clear()
+        profile.export_numbers.clear()
+        self.viewport.clear_jig_sheet_locks()
         self.viewport.set_slot_layout(slot_layout)
         self._refresh_sheet_panel()
 
@@ -1269,6 +1278,29 @@ class MainWindow(QMainWindow):
             f"Submitted labels for sheet {sheet_index + 1}: job {print_job_id}", 7000
         )
 
+    def _copy_jig_sheet_order_numbers(self, sheet_index: int) -> None:
+        profile = self._active_profile_if(
+            NestProfileKind.JIG,
+            "Order numbers are only available for jig profiles.",
+            5000,
+        )
+        if profile is None:
+            return
+
+        order_numbers = self._sheet_order_numbers(sheet_index)
+        if not order_numbers:
+            self.statusBar().showMessage(
+                f"Sheet {sheet_index + 1} has no hot-folder orders to copy.", 5000
+            )
+            return
+
+        QApplication.clipboard().setText("; ".join(order_numbers))
+        self.statusBar().showMessage(
+            f"Copied {len(order_numbers)} order number(s) from sheet "
+            f"{sheet_index + 1}.",
+            5000,
+        )
+
     def _export_jig_mockup(self) -> None:
         profile = self._active_profile_if(
             NestProfileKind.JIG,
@@ -1382,6 +1414,7 @@ class MainWindow(QMainWindow):
             return
 
         profile.exported_sheets.add((sheet_index, ExportKind.PRINT))
+        self.viewport.set_jig_sheet_locked(sheet_index)
         self._refresh_sheet_panel()
         self.statusBar().showMessage(
             f"Exported jig sheet {sheet_index + 1}: {result.path}", 7000
@@ -1477,6 +1510,7 @@ class MainWindow(QMainWindow):
                         )
                         return
                     profile.exported_sheets.add((sheet_index, ExportKind.PRINT))
+                    self.viewport.set_jig_sheet_locked(sheet_index)
                     exported += 1
 
                 if sheet_labels_pending:
@@ -1557,6 +1591,10 @@ class MainWindow(QMainWindow):
                         self._sheet_order_numbers(sheet_index)
                         if profile.kind == NestProfileKind.JIG
                         else []
+                    ),
+                    locked=(
+                        profile.kind == NestProfileKind.JIG
+                        and self.viewport.is_jig_sheet_locked(sheet_index)
                     ),
                 )
             )
