@@ -14,13 +14,14 @@ import pytest
 from PIL import Image
 from PySide6.QtCore import QPointF, Qt
 from printer_nester.core.artboard import SlotLayoutSettings
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QScrollArea
 
 from printer_nester.core.label_print import PrintNodePrinter
 
 from printer_nester.core.nest_profile import NestProfileKind
 from printer_nester.core.pdf_export import ExportKind
 from printer_nester.ui.main_window import MainWindow
+from printer_nester.ui.artboard_panel import SheetPanelRow
 from printer_nester.ui.viewport import HOT_FOLDER_ORDER_DATA_KEY
 
 
@@ -53,6 +54,34 @@ def _write_hot_order_zip(
     with zipfile.ZipFile(incoming / filename, "w") as archive:
         archive.writestr("order.json", json.dumps(manifest))
         archive.writestr(artwork_name, _png_bytes())
+
+def test_side_panel_updates_do_not_force_window_to_grow() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.resize(1100, 600)
+    requested_size = window.size()
+    window.show()
+    try:
+        for kind in (NestProfileKind.SHEET, NestProfileKind.JIG, NestProfileKind.SHEET):
+            window._add_profile(kind, switch=True)
+            window.artboard_panel.set_sheet_rows([
+                SheetPanelRow(index, 10, True, False, False)
+                for index in range(30)
+            ])
+            for _ in range(3):
+                app.processEvents()
+            assert window.size() == requested_size
+            scroll = window.artboard_panel.findChild(
+                QScrollArea, "artboardPanelScroll"
+            )
+            assert scroll is not None
+            assert scroll.verticalScrollBar().maximum() > 0
+            scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum())
+            app.processEvents()
+            assert window.size() == requested_size
+    finally:
+        window.close()
+
 
 def test_main_window_starts_with_sheet_profile_tab() -> None:
     QApplication.instance() or QApplication([])
@@ -692,6 +721,55 @@ def test_main_window_prints_jig_sheet_order_labels(monkeypatch, tmp_path) -> Non
     assert saved == ["123"]
     assert "Submitted labels for sheet 1: job 987" in window.statusBar().currentMessage()
 
+    window.close()
+
+
+@pytest.mark.parametrize("removed_index", [0, 1, 2])
+def test_empty_locked_jigs_are_removed_and_export_state_follows_items(
+    tmp_path, removed_index
+) -> None:
+    QApplication.instance() or QApplication([])
+    path = tmp_path / "art.png"
+    Image.new("RGB", (100, 100), "red").save(path, dpi=(100, 100))
+    window = MainWindow()
+    profile = window._add_profile(
+        NestProfileKind.JIG, switch=True,
+        slot_layout=SlotLayoutSettings(
+            slot_width_in=1, slot_height_in=1, slot_margin_in=0,
+            horizontal_spacing_in=0, vertical_spacing_in=0,
+            columns=2, rows=1, outside_margin_in=0,
+        ),
+    )
+    viewport = window.viewport
+    items = []
+    for index in range(3):
+        item = viewport.add_image_file(path, QPointF())
+        assert item is not None
+        items.append(item)
+        viewport.set_jig_sheet_locked(index)
+        profile.exported_sheets.add((index, ExportKind.PRINT))
+        profile.labels_printed_sheets.add(index)
+        profile.export_numbers[index] = 100 + index
+
+    viewport.remove_image_items([items[removed_index]])
+
+    survivors = [item for index, item in enumerate(items) if index != removed_index]
+    assert viewport._sheet_count() == 3
+    for index, item in enumerate(survivors):
+        assert viewport.item_sheet_index(item) == index
+        assert viewport.is_jig_sheet_locked(index)
+        assert profile.export_numbers[index] == 100 + items.index(item)
+    assert profile.exported_sheets == {(0, ExportKind.PRINT), (1, ExportKind.PRINT)}
+    assert profile.labels_printed_sheets == {0, 1}
+    new_item = viewport.add_image_file(path, QPointF())
+    assert viewport.item_sheet_index(new_item) == 2
+
+    viewport.remove_image_items(viewport.image_items())
+    assert viewport._sheet_count() == 1
+    assert not viewport.is_jig_sheet_locked(0)
+    assert not profile.exported_sheets
+    assert not profile.labels_printed_sheets
+    assert not profile.export_numbers
     window.close()
 
 

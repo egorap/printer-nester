@@ -809,6 +809,11 @@ class MainWindow(QMainWindow):
         viewport.sheet_layout_changed.connect(
             lambda viewport=viewport: self._handle_viewport_layout_changed(viewport)
         )
+        viewport.jig_sheets_remapped.connect(
+            lambda sheet_map, viewport=viewport: self._handle_jig_sheets_remapped(
+                viewport, sheet_map
+            )
+        )
 
     def _active_profile(self) -> ProfileTab:
         if not self._profiles:
@@ -980,6 +985,25 @@ class MainWindow(QMainWindow):
             return
         self.item_panel.refresh_image_item(item)
         self._refresh_transform_selection(item)
+
+    def _handle_jig_sheets_remapped(
+        self, viewport: PrintViewport, sheet_map: dict[int, int]
+    ) -> None:
+        profile = self._profile_for_viewport(viewport)
+        if profile is None:
+            return
+        profile.exported_sheets = {
+            (sheet_map[index], kind) for index, kind in profile.exported_sheets
+            if index in sheet_map
+        }
+        profile.labels_printed_sheets = {
+            sheet_map[index] for index in profile.labels_printed_sheets
+            if index in sheet_map
+        }
+        profile.export_numbers = {
+            sheet_map[index]: number for index, number in profile.export_numbers.items()
+            if index in sheet_map
+        }
 
     def _handle_viewport_layout_changed(self, viewport: PrintViewport) -> None:
         profile = self._profile_for_viewport(viewport)

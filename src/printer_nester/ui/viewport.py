@@ -208,6 +208,7 @@ class PrintViewport(QGraphicsView):
     zoom_changed = Signal(int)
     viewport_changed = Signal()
     sheet_layout_changed = Signal()
+    jig_sheets_remapped = Signal(object)
     image_added = Signal(object, str)
     image_removed = Signal(object)
     images_removed = Signal(object)
@@ -2199,16 +2200,12 @@ class PrintViewport(QGraphicsView):
 
     def _ensure_trailing_empty_sheet(self) -> None:
         occupied = self._occupied_sheet_indices()
-        if self._slot_layout is not None and self._locked_jig_sheet_indices:
-            retained = occupied | self._locked_jig_sheet_indices
-            self._set_sheet_count(max(retained) + 2 if retained else 1)
-            return
+        self._compact_occupied_sheets(occupied)
         if not occupied:
             self._set_sheet_count(1)
             self._ensure_sheet_count(1)
             return
 
-        self._compact_occupied_sheets(occupied)
         occupied = self._occupied_sheet_indices()
         self._set_sheet_count(max(occupied) + 2 if occupied else 1)
 
@@ -2216,6 +2213,16 @@ class PrintViewport(QGraphicsView):
         sheet_map = {
             old_index: new_index for new_index, old_index in enumerate(sorted(occupied))
         }
+        if self._slot_layout is not None:
+            self._locked_jig_sheet_indices = {
+                sheet_map[index] for index in self._locked_jig_sheet_indices
+                if index in sheet_map
+            }
+            self._reserved_jig_slot_keys = {
+                (sheet_map[index], slot) for index, slot in self._reserved_jig_slot_keys
+                if index in sheet_map
+            }
+            self.jig_sheets_remapped.emit(sheet_map)
         if all(old_index == new_index for old_index, new_index in sheet_map.items()):
             return
 

@@ -89,7 +89,17 @@ class ArtboardPanel(QWidget):
         self.setMinimumWidth(360)
         self.setMaximumWidth(520)
 
-        layout = QVBoxLayout(self)
+        panel_layout = QVBoxLayout(self)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setObjectName("artboardPanelScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        scroll.setWidget(content)
+        panel_layout.addWidget(scroll)
+
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
@@ -893,7 +903,7 @@ class ArtboardPanel(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        scroll.setMinimumHeight(320)
+        scroll.setMinimumHeight(128)
 
         list_widget = QWidget()
         list_layout = QVBoxLayout(list_widget)
