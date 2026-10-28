@@ -8,6 +8,7 @@ import re
 import shutil
 import tempfile
 import uuid
+from collections.abc import Callable
 
 import fitz
 from printer_nester.core.artboard import SlotLayoutSettings
@@ -47,6 +48,8 @@ class ExportArtwork:
     rotation: int = 0
     page_index: int = 0
     image_bytes: bytes | None = None
+    mask_path: Path | None = None
+    mask_relative_rect: tuple[float, float, float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +88,7 @@ def export_sheet_pdf(
     kind: ExportKind,
     settings: ExportSettings,
     export_number: int | None = None,
+    progress: Callable[[int, str], None] = lambda *_: None,
 ) -> ExportResult:
     destination_dir = (
         settings.sheet_print_directory
@@ -109,6 +113,7 @@ def export_sheet_pdf(
     _ensure_directory_writable(destination_dir)
 
     cut_filename = f"sheet_{file_number:03d}_{ExportKind.CUT.value}.pdf"
+    progress(10, "Rendering PDF")
     local_path = _write_local_pdf(
         sheet,
         kind,
@@ -116,6 +121,7 @@ def export_sheet_pdf(
         cut_filename=cut_filename if kind == ExportKind.PRINT else None,
     )
     try:
+        progress(80, "Saving to export folder")
         final_path = _commit_file(local_path, destination)
     finally:
         if local_path.exists():
@@ -234,7 +240,9 @@ def _draw_artwork_layer(
         }
         if oc is not None:
             options["oc"] = oc
-        if artwork.image_bytes is not None:
+        if artwork.mask_path is not None:
+            page.insert_image(rect, stream=_masked_artwork_png(artwork), **options)
+        elif artwork.image_bytes is not None:
             page.insert_image(rect, stream=artwork.image_bytes, **options)
         elif artwork.kind == ArtworkKind.PDF:
             with fitz.open(artwork.path) as source:
@@ -246,6 +254,49 @@ def _draw_artwork_layer(
                 )
         else:
             page.insert_image(rect, filename=str(artwork.path), **options)
+
+
+def _masked_artwork_png(artwork: ExportArtwork) -> bytes:
+    from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QRectF
+    from PySide6.QtGui import QImage, QPainter, QColor
+    from printer_nester.core.artwork_import import read_artwork_import_info
+    from printer_nester.ui.qt_settings import configure_qt_image_limits
+
+    configure_qt_image_limits()
+    info = read_artwork_import_info(artwork.path)
+    if info.preview_pixels is not None:
+        image = QImage(info.preview_pixels, info.preview_width_px, info.preview_height_px,
+                       info.preview_stride, QImage.Format.Format_RGBA8888).copy()
+    else:
+        image = QImage(str(artwork.path))
+    mask = QImage(str(artwork.mask_path))
+    if image.isNull() or mask.isNull() or artwork.mask_relative_rect is None:
+        raise ValueError("Could not load artwork or jig mask")
+    image = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+    canvas = QImage(image.size(), QImage.Format.Format_Grayscale8)
+    canvas.fill(255)
+    x, y, width, height = artwork.mask_relative_rect
+    painter = QPainter(canvas)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+    painter.drawImage(QRectF(x * image.width(), y * image.height(),
+                            width * image.width(), height * image.height()),
+                      mask.convertToFormat(QImage.Format.Format_Grayscale8))
+    painter.end()
+    canvas.invertPixels(QImage.InvertMode.InvertRgb)
+    alpha = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    alpha.fill(QColor(0, 0, 0, 255))
+    alpha.setAlphaChannel(canvas)
+    painter = QPainter(image)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+    painter.drawImage(0, 0, alpha)
+    painter.end()
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    if not image.save(buffer, "PNG"):
+        raise RuntimeError("Could not encode masked artwork")
+    buffer.close()
+    return bytes(data)
 
 
 def _draw_cut_layer(page: fitz.Page, segments: list[ExportSegment], oc: int) -> None:
@@ -334,6 +385,7 @@ def export_jig_layout_pdf(
     destination: Path,
     local_temp_directory: Path,
     dpi: int = JIG_LAYOUT_EXPORT_DPI,
+    progress: Callable[[int, str], None] = lambda *_: None,
 ) -> ExportResult:
     if not sheets:
         raise ValueError("jig layout has no sheets to export")
@@ -352,8 +404,10 @@ def export_jig_layout_pdf(
     _ensure_directory_writable(local_temp_directory)
     _ensure_directory_writable(destination.parent)
 
+    progress(10, "Rendering color and white layers")
     local_path = _write_local_jig_layout_pdf(sheets, local_temp_directory, dpi)
     try:
+        progress(80, "Saving to export folder")
         final_path = _commit_file(local_path, destination)
     finally:
         if local_path.exists():

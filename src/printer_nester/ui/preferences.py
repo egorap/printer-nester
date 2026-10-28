@@ -164,14 +164,14 @@ def save_hot_folder_root(root: Path) -> None:
 
 
 def load_label_printer_id() -> str:
-    return str(QSettings().value("label_printer/id", "")).strip()
+    return str(QSettings().value("label_printer/local_name", "")).strip()
 
 
 def save_label_printer_id(printer_id: str) -> None:
     settings = QSettings()
     value = str(printer_id).strip()
     if value:
-        settings.setValue("label_printer/id", value)
+        settings.setValue("label_printer/local_name", value)
     else:
-        settings.remove("label_printer/id")
+        settings.remove("label_printer/local_name")
     settings.sync()

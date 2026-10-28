@@ -16,13 +16,176 @@ from PySide6.QtCore import QPointF, Qt
 from printer_nester.core.artboard import SlotLayoutSettings
 from PySide6.QtWidgets import QApplication, QScrollArea
 
-from printer_nester.core.label_print import PrintNodePrinter
-
 from printer_nester.core.nest_profile import NestProfileKind
 from printer_nester.core.pdf_export import ExportKind
 from printer_nester.ui.main_window import MainWindow
 from printer_nester.ui.artboard_panel import SheetPanelRow
 from printer_nester.ui.viewport import HOT_FOLDER_ORDER_DATA_KEY
+
+_restore_pending_orders = MainWindow._restore_pending_hot_orders
+
+
+
+@pytest.fixture(autouse=True)
+def isolated_job_workers(monkeypatch, tmp_path):
+    from concurrent.futures import Future
+    from queue import Queue
+    from printer_nester.ui.job_queue import JobQueue
+
+    class InlinePool:
+        def submit(self, function, *args):
+            future = Future()
+            try:
+                future.set_result(function(*args))
+            except Exception as error:
+                future.set_exception(error)
+            return future
+
+        def shutdown(self, **kwargs):
+            pass
+
+    def pools(queue):
+        queue._pool = InlinePool()
+        queue._print_pool = InlinePool()
+        queue._messages = Queue()
+
+    def download(orders, progress, title=""):
+        path = tmp_path / "labels.pdf"
+        with fitz.open() as document:
+            document.new_page()
+            document.save(path)
+        return path
+
+    monkeypatch.setattr(JobQueue, "_start_pools", pools)
+    monkeypatch.setattr(JobQueue, "shutdown", lambda self: None)
+    monkeypatch.setattr("printer_nester.core.background_jobs.download_labels", download)
+    monkeypatch.setattr("printer_nester.core.background_jobs.print_label_pdf", lambda *args: "Sent")
+    monkeypatch.setattr("printer_nester.ui.artboard_panel.ArtboardPanel.label_title_page_enabled", lambda self: False)
+    monkeypatch.setattr("printer_nester.ui.main_window.available_printers", lambda: [])
+    monkeypatch.setattr(MainWindow, "_restore_pending_hot_orders", lambda self: None)
+
+
+def _drain_jobs(window):
+    for _ in range(20):
+        window.job_queue._poll()
+        if not window.job_queue.busy():
+            return
+    raise AssertionError("Queue did not finish")
+
+def test_startup_opens_jig_for_pending_hot_orders(tmp_path):
+    from printer_nester.core.hot_folder import prepare_hot_folder_packages
+    QApplication.instance() or QApplication([])
+    root = tmp_path / "hot"
+    _write_hot_order_zip(root, "order.zip", "A100", 2)
+    prepare_hot_folder_packages(root)
+    window = MainWindow()
+    window.artboard_panel.set_hot_folder_root(root)
+    _restore_pending_orders(window)
+    assert window._active_profile().kind == NestProfileKind.JIG
+    assert len(window.viewport.image_items()) == 2
+    window.close()
+
+
+def test_hot_orders_resume_only_unexported_copies_after_restart(tmp_path):
+    QApplication.instance() or QApplication([])
+    root = tmp_path / "hot"
+    _write_hot_order_zip(root, "order.zip", "A100", 3)
+    layout = SlotLayoutSettings(slot_width_in=1, slot_height_in=1, slot_margin_in=0,
+                               horizontal_spacing_in=0, vertical_spacing_in=0,
+                               columns=2, rows=1, outside_margin_in=0)
+
+    def open_window():
+        window = MainWindow()
+        window.artboard_panel.set_jig_mask_path(None)
+        window._add_profile(NestProfileKind.JIG, switch=True, slot_layout=layout)
+        window.artboard_panel.set_hot_folder_root(root)
+        window.artboard_panel._jig_print_export_input.setText(str(tmp_path / "exports"))
+        window.artboard_panel._temp_export_input.setText(str(tmp_path / "temp"))
+        window._process_hot_folder()
+        return window
+
+    first = open_window()
+    assert len(first.viewport.image_items()) == 3
+    first._process_hot_folder()
+    assert len(first.viewport.image_items()) == 3
+    first._export_sheet(0, "jig")
+    _drain_jobs(first)
+    assert not list((root / "done").glob("*.zip"))
+    first.close()
+
+    second = open_window()
+    assert len(second.viewport.image_items()) == 1
+    assert second.viewport.image_items()[0].data(16) == 2
+    second._export_sheet(0, "jig")
+    _drain_jobs(second)
+    assert len(list((root / "done").glob("*.zip"))) == 1
+    second.close()
+
+    third = open_window()
+    assert third.viewport.image_items() == []
+    third.close()
+
+
+def test_label_title_uses_actual_collision_safe_pdf_name(monkeypatch, tmp_path):
+    QApplication.instance() or QApplication([])
+    root = tmp_path / "hot"
+    _write_hot_order_zip(root, "order.zip", "A100", 1)
+    window = MainWindow()
+    window.artboard_panel.set_jig_mask_path(None)
+    window._add_profile(NestProfileKind.JIG, switch=True,
+        slot_layout=SlotLayoutSettings(slot_width_in=1, slot_height_in=1,
+            slot_margin_in=0, horizontal_spacing_in=0, vertical_spacing_in=0,
+            columns=1, rows=1, outside_margin_in=0))
+    window.artboard_panel.set_hot_folder_root(root)
+    window._process_hot_folder()
+    output = tmp_path / "exports"
+    output.mkdir()
+    window._export_counter_input.setValue(42)
+    (output / "042_jig_sheet.pdf").write_bytes(b"existing print")
+    window.artboard_panel._jig_print_export_input.setText(str(output))
+    window.artboard_panel._temp_export_input.setText(str(tmp_path / "temp"))
+    window.artboard_panel.set_label_printer_id("Local labels")
+    monkeypatch.setattr(window.artboard_panel, "label_title_page_enabled", lambda: True)
+    titles = []
+    from printer_nester.core import background_jobs
+    download = background_jobs.download_labels
+
+    def capture(orders, progress, title):
+        titles.append(title)
+        return download(orders, progress, title)
+
+    monkeypatch.setattr(background_jobs, "download_labels", capture)
+    window._export_all_pending()
+    _drain_jobs(window)
+    assert titles == ["042_jig_sheet_001.pdf"]
+    assert (output / "042_jig_sheet.pdf").read_bytes() == b"existing print"
+    window.close()
+
+
+def test_failed_export_keeps_hot_order_pending_for_next_session(monkeypatch, tmp_path):
+    QApplication.instance() or QApplication([])
+    root = tmp_path / "hot"
+    _write_hot_order_zip(root, "order.zip", "A100", 2)
+    window = MainWindow()
+    window.artboard_panel.set_jig_mask_path(None)
+    window._add_profile(NestProfileKind.JIG, switch=True)
+    window.artboard_panel.set_hot_folder_root(root)
+    window.artboard_panel._jig_print_export_input.setText(str(tmp_path / "exports"))
+    window._process_hot_folder()
+
+    def fail(*args, **kwargs):
+        raise OSError("network destination unavailable")
+
+    monkeypatch.setattr("printer_nester.core.background_jobs.export_jig_layout_pdf", fail)
+    window._export_sheet(0, "jig")
+    _drain_jobs(window)
+    assert not window._active_profile().exported_sheets
+    window.close()
+    from printer_nester.core.hot_folder import prepare_hot_folder_packages
+    recovered = prepare_hot_folder_packages(root)
+    assert len(recovered.packages) == 1
+    assert recovered.packages[0].order.total_quantity == 2
+    assert not recovered.packages[0].exported_indices
 
 
 def _test_image(name: str) -> Path:
@@ -286,10 +449,10 @@ def test_main_window_processes_hot_folder_orders_as_groups(tmp_path) -> None:
     assert window._sheet_order_numbers(1) == ["B200"]
     assert window.viewport.sheet_item_summary()[0][1] == 1
     assert window.viewport.sheet_item_summary()[1][1] == 2
-    assert len(list((hot_root / "done").glob("*.zip"))) == 2
-    assert not list((hot_root / "processing").glob("*.zip"))
+    assert not list((hot_root / "done").glob("*.zip"))
+    assert len(list((hot_root / "processing").glob("*.zip"))) == 2
     assert all(
-        (hot_root / "done") in Path(str(item.data(0))).parents
+        (hot_root / "processing") in Path(str(item.data(0))).parents
         for item in window.viewport.image_items()
     )
 
@@ -322,8 +485,8 @@ def test_hot_folder_label_order_matches_print_import_order(
     window.artboard_panel.set_label_printer_id("123")
     submitted = []
     monkeypatch.setattr(
-        "printer_nester.ui.main_window.print_order_labels",
-        lambda printer_id, orders: submitted.append((printer_id, orders)) or 1,
+        "printer_nester.core.background_jobs.print_label_pdf",
+        lambda _path, printer_id, orders, _progress: submitted.append((printer_id, orders)) or 1,
     )
     monkeypatch.setattr(
         "printer_nester.ui.main_window.save_label_printer_id",
@@ -332,6 +495,7 @@ def test_hot_folder_label_order_matches_print_import_order(
 
     window._process_hot_folder()
     window._print_jig_sheet_labels(0)
+    _drain_jobs(window)
 
     assert window._sheet_order_numbers(0) == ["B200", "A100"]
     assert submitted == [("123", ["B200", "A100"])]
@@ -371,7 +535,7 @@ def test_main_window_poll_hot_folder_imports_ready_orders(tmp_path) -> None:
     assert len(window.viewport.image_items()) == 1
     assert window._sheet_order_numbers(0) == ["A100"]
     assert not zip_path.exists()
-    assert len(list((hot_root / "done").glob("*.zip"))) == 1
+    assert len(list((hot_root / "processing").glob("*.zip"))) == 1
 
     window.close()
 
@@ -406,7 +570,7 @@ def test_main_window_exports_jig_sheet_pdf(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "printer_nester.ui.main_window.save_export_counter", lambda _value: None
     )
-    destination = output_dir / "jig_sheet_042.pdf"
+    destination = output_dir / "042_jig_sheet.pdf"
     window = MainWindow()
     window.artboard_panel.set_jig_mask_path(None)
     slot_layout = SlotLayoutSettings(
@@ -427,6 +591,7 @@ def test_main_window_exports_jig_sheet_pdf(monkeypatch, tmp_path) -> None:
     window.artboard_panel._temp_export_input.setText(str(output_dir / "temp"))
 
     window._export_sheet(0, "jig")
+    _drain_jobs(window)
 
     assert destination.exists()
     assert (0, ExportKind.PRINT) in window._active_profile().exported_sheets
@@ -470,8 +635,8 @@ def test_export_all_writes_jig_pdf_and_prints_labels(monkeypatch, tmp_path) -> N
     )
     calls = []
     monkeypatch.setattr(
-        "printer_nester.ui.main_window.print_order_labels",
-        lambda printer_id, orders: calls.append((printer_id, orders)) or 987,
+        "printer_nester.core.background_jobs.print_label_pdf",
+        lambda _path, printer_id, orders, _progress: calls.append((printer_id, orders)) or 987,
     )
     monkeypatch.setattr(
         "printer_nester.ui.main_window.save_label_printer_id",
@@ -501,15 +666,16 @@ def test_export_all_writes_jig_pdf_and_prints_labels(monkeypatch, tmp_path) -> N
     window.artboard_panel.set_label_printer_id("123")
 
     window._export_all_pending()
+    _drain_jobs(window)
 
     profile = window._active_profile()
-    assert (output_dir / "jig_sheet_090.pdf").exists()
+    assert (output_dir / "090_jig_sheet.pdf").exists()
     assert not list(output_dir.glob("*.json"))
     assert calls == [("123", ["ORDER-1"])]
     assert (0, ExportKind.PRINT) in profile.exported_sheets
     assert window.viewport.is_jig_sheet_locked(0)
     assert 0 in profile.labels_printed_sheets
-    assert "1 label job(s) submitted" in window.statusBar().currentMessage()
+    assert 0 in profile.labels_printed_sheets
 
     window.close()
 
@@ -532,14 +698,14 @@ def test_export_all_retries_failed_labels_without_duplicate_pdf(
     )
     calls = []
 
-    def print_labels(printer_id, orders):
+    def print_labels(_path, printer_id, orders, _progress):
         calls.append((printer_id, orders))
         if len(calls) == 1:
             raise RuntimeError("printer offline")
         return 988
 
     monkeypatch.setattr(
-        "printer_nester.ui.main_window.print_order_labels", print_labels
+        "printer_nester.core.background_jobs.print_label_pdf", print_labels
     )
     monkeypatch.setattr(
         "printer_nester.ui.main_window.save_label_printer_id",
@@ -569,14 +735,16 @@ def test_export_all_retries_failed_labels_without_duplicate_pdf(
     window.artboard_panel.set_label_printer_id("123")
 
     window._export_all_pending()
+    _drain_jobs(window)
 
     profile = window._active_profile()
     assert (0, ExportKind.PRINT) in profile.exported_sheets
     assert 0 not in profile.labels_printed_sheets
     assert len(list(output_dir.glob("*.pdf"))) == 1
-    assert "label print failed" in window.statusBar().currentMessage()
+    assert "Job failed" in window.statusBar().currentMessage()
 
     window._export_all_pending()
+    _drain_jobs(window)
 
     assert len(list(output_dir.glob("*.pdf"))) == 1
     assert len(calls) == 2
@@ -609,7 +777,9 @@ def test_sheet_print_and_cut_share_counter_number(monkeypatch, tmp_path) -> None
     window.artboard_panel._temp_export_input.setText(str(temp_dir))
 
     window._export_sheet(0, "print")
+    _drain_jobs(window)
     window._export_sheet(0, "cut")
+    _drain_jobs(window)
 
     assert (print_dir / "sheet_075_print.pdf").exists()
     assert (cut_dir / "sheet_075_cut.pdf").exists()
@@ -646,6 +816,7 @@ def test_main_window_exports_jig_mockup_pdf(monkeypatch) -> None:
     )
 
     window._export_jig_mockup()
+    _drain_jobs(window)
 
     assert destination.exists()
     with fitz.open(destination) as document:
@@ -655,7 +826,7 @@ def test_main_window_exports_jig_mockup_pdf(monkeypatch) -> None:
 
     window.close()
 
-def test_main_window_refreshes_printnode_printer_choices(monkeypatch) -> None:
+def test_main_window_refreshes_local_printer_choices(monkeypatch) -> None:
     QApplication.instance() or QApplication([])
     monkeypatch.setattr(
         "printer_nester.ui.artboard_panel.load_label_printer_id", lambda: ""
@@ -663,21 +834,14 @@ def test_main_window_refreshes_printnode_printer_choices(monkeypatch) -> None:
     window = MainWindow()
     window._add_profile(NestProfileKind.JIG, switch=True)
     monkeypatch.setattr(
-        "printer_nester.ui.main_window.list_printnode_printers",
-        lambda: [
-            PrintNodePrinter(
-                "123",
-                "Shipping Labels",
-                computer_name="Pack Station",
-                state="online",
-            )
-        ],
+        "printer_nester.ui.main_window.available_printers",
+        lambda: ["Shipping Labels"],
     )
 
     window._refresh_label_printers()
 
-    assert window.artboard_panel.label_printer_id() == "123"
-    assert "Loaded 1 PrintNode printer" in window.statusBar().currentMessage()
+    assert window.artboard_panel.label_printer_id() == "Shipping Labels"
+    assert "Loaded 1 local printer" in window.statusBar().currentMessage()
 
     window.close()
 
@@ -707,8 +871,8 @@ def test_main_window_prints_jig_sheet_order_labels(monkeypatch, tmp_path) -> Non
     calls = []
     saved = []
     monkeypatch.setattr(
-        "printer_nester.ui.main_window.print_order_labels",
-        lambda printer_id, orders: calls.append((printer_id, orders)) or 987,
+        "printer_nester.core.background_jobs.print_label_pdf",
+        lambda _path, printer_id, orders, _progress: calls.append((printer_id, orders)) or 987,
     )
     monkeypatch.setattr(
         "printer_nester.ui.main_window.save_label_printer_id",
@@ -716,10 +880,11 @@ def test_main_window_prints_jig_sheet_order_labels(monkeypatch, tmp_path) -> Non
     )
 
     window._print_jig_sheet_labels(0)
+    _drain_jobs(window)
 
     assert calls == [("123", ["ORDER-1"])]
     assert saved == ["123"]
-    assert "Submitted labels for sheet 1: job 987" in window.statusBar().currentMessage()
+    assert 0 in window._active_profile().labels_printed_sheets
 
     window.close()
 

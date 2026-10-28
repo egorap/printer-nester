@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPointF, QSignalBlocker, QSize, Qt, QTimer
@@ -29,20 +29,17 @@ from PySide6.QtWidgets import (
 from printer_nester.core.artwork_import import read_artwork_import_info
 from printer_nester.core.hot_folder import (
     PreparedHotFolderPackage,
-    complete_hot_folder_package,
     fail_hot_folder_package,
     prepare_hot_folder_packages,
 )
-from printer_nester.core.label_print import list_printnode_printers, print_order_labels
 from printer_nester.core.nest_profile import NestProfileKind
 from printer_nester.core.pdf_export import (
     ExportKind,
-    export_jig_layout_pdf,
-    export_jig_mockup_pdf,
-    export_sheet_pdf,
 )
 from printer_nester.ui.artboard_panel import ArtboardPanel, SheetPanelRow
 from printer_nester.ui.item_panel import ItemPanel
+from printer_nester.ui.job_queue import JobQueue
+from printer_nester.core.local_labels import available_printers
 from printer_nester.ui.preferences import (
     load_default_artboard,
     load_default_slot_layout,
@@ -334,6 +331,13 @@ class MainWindow(QMainWindow):
         self._jig_profile_count = 0
         self._profile_add_button: QToolButton | None = None
         self._hot_folder_processing = False
+        self._loaded_hot_packages: set[Path] = set()
+        self._job_contexts = {}
+        self._pending_exports = set()
+        self._pending_labels = set()
+        self._export_paths = {}
+        self._queue_panel_refresh_scheduled = False
+        self._closing = False
         self._importing_viewports: set[PrintViewport] = set()
         self.viewport: PrintViewport
 
@@ -352,6 +356,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, item_dock)
 
         self.artboard_panel = ArtboardPanel(artboard, slot_layout)
+        self.artboard_panel.set_label_printers(available_printers())
         self.artboard_panel.set_jig_mask_path(load_default_slot_mask_path())
         self.artboard_panel.artboard_changed.connect(self._set_active_artboard)
         self.artboard_panel.slot_layout_changed.connect(self._set_active_slot_layout)
@@ -384,6 +389,17 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, artboard_dock)
 
+        self.job_queue = JobQueue(self)
+        self.job_queue.finished.connect(self._job_finished)
+        self.job_queue.restarted.connect(self._job_restarted)
+        self.job_queue.cleared.connect(self._clear_job_contexts)
+        self._queue_dock = QDockWidget("Export / Label Queue", self)
+        self._queue_dock.setObjectName("jobQueueDock")
+        self._queue_dock.setWidget(self.job_queue)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._queue_dock)
+        self._queue_dock.hide()
+        self.menuBar().addMenu("View").addAction(self._queue_dock.toggleViewAction())
+
         self._tab_widget = self._build_profile_tabs()
         self.setCentralWidget(self._tab_widget)
 
@@ -410,6 +426,23 @@ class MainWindow(QMainWindow):
         self._hot_folder_timer.setInterval(HOT_FOLDER_POLL_INTERVAL_MS)
         self._hot_folder_timer.timeout.connect(self._poll_hot_folder)
         self._hot_folder_timer.start()
+        QTimer.singleShot(0, self._restore_pending_hot_orders)
+
+    def _restore_pending_hot_orders(self):
+        if self._closing:
+            return
+        root = self.artboard_panel.hot_folder_root()
+        if root == Path("."):
+            return
+        try:
+            pending = any((root / "processing").glob("*.zip"))
+        except OSError as error:
+            self.statusBar().showMessage(f"Could not check pending orders: {error}", 9000)
+            return
+        if pending:
+            if self._active_profile().kind != NestProfileKind.JIG:
+                self._add_profile(NestProfileKind.JIG, switch=True)
+            self._process_hot_folder()
 
     def _build_profile_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
@@ -872,6 +905,16 @@ class MainWindow(QMainWindow):
 
         widget = self._tab_widget.widget(index)
         profile = self._profile_for_widget(widget)
+        if any(context["profile"] is profile and not self.job_queue.jobs.get(key, {}).get("done", True)
+               for key, context in self._job_contexts.items()):
+            self.statusBar().showMessage("This tab has running jobs. Close it after they finish.", 7000)
+            return
+        for context in self._job_contexts.values():
+            if context["profile"] is profile:
+                context["index"] = None
+        for item in profile.viewport.image_items():
+            if item.data(15):
+                self._loaded_hot_packages.discard(Path(str(item.data(15))))
         self._tab_widget.removeTab(index)
         self._profiles.remove(profile)
         profile.widget.deleteLater()
@@ -992,6 +1035,22 @@ class MainWindow(QMainWindow):
         profile = self._profile_for_viewport(viewport)
         if profile is None:
             return
+        for context in self._job_contexts.values():
+            if context["profile"] is not profile:
+                continue
+            old_key = context["key"]
+            new_index = sheet_map.get(context["index"])
+            context["index"] = new_index
+            context["key"] = (id(profile), new_index, context["kind"])
+            for pending in (self._pending_exports, self._pending_labels):
+                if old_key in pending:
+                    pending.discard(old_key)
+                    pending.add(context["key"])
+        self._export_paths = {
+            ((owner, sheet_map[index], kind) if owner == id(profile) else (owner, index, kind)): path
+            for (owner, index, kind), path in self._export_paths.items()
+            if owner != id(profile) or index in sheet_map
+        }
         profile.exported_sheets = {
             (sheet_map[index], kind) for index, kind in profile.exported_sheets
             if index in sheet_map
@@ -1158,7 +1217,8 @@ class MainWindow(QMainWindow):
         try:
             try:
                 scan = prepare_hot_folder_packages(
-                    root, min_age_seconds=min_package_age_seconds
+                    root, min_age_seconds=min_package_age_seconds,
+                    loaded_packages=self._loaded_hot_packages,
                 )
             except Exception as error:
                 if show_empty_status:
@@ -1174,10 +1234,7 @@ class MainWindow(QMainWindow):
                     package_items = []
                     try:
                         package_items = self._import_hot_folder_package(package)
-                        completed = complete_hot_folder_package(package, root)
-                        self._retarget_hot_folder_items(
-                            package_items, package.extract_dir, completed.extract_dir
-                        )
+                        self._loaded_hot_packages.add(package.zip_path)
                     except Exception as error:
                         if package_items:
                             self.viewport.remove_image_items(package_items)
@@ -1209,7 +1266,9 @@ class MainWindow(QMainWindow):
 
     def _import_hot_folder_package(self, package: PreparedHotFolderPackage) -> list[object]:
         order = package.order
-        artwork_paths = order.expanded_artwork_paths()
+        pending = [(index, path) for index, path in enumerate(order.expanded_artwork_paths())
+                   if index not in package.exported_indices]
+        artwork_paths = [path for _, path in pending]
         if not artwork_paths:
             raise ValueError(f"Order {order.order_number} has no artwork items")
 
@@ -1226,11 +1285,13 @@ class MainWindow(QMainWindow):
 
         imported_items = []
         try:
-            for artwork_path in artwork_paths:
+            for copy_index, artwork_path in pending:
                 item = self.viewport.add_artwork_file(artwork_path, QPointF(0, 0))
                 if item is None:
                     raise ValueError(f"Could not import artwork: {artwork_path}")
                 item.setData(HOT_FOLDER_ORDER_DATA_KEY, order.order_number)
+                item.setData(15, str(package.zip_path))
+                item.setData(16, copy_index)
                 imported_items.append(item)
         except Exception:
             self.viewport.remove_image_items(imported_items)
@@ -1252,16 +1313,16 @@ class MainWindow(QMainWindow):
 
     def _refresh_label_printers(self) -> None:
         try:
-            printers = list_printnode_printers()
+            printers = available_printers()
         except Exception as error:
             self.statusBar().showMessage(
-                f"Could not load PrintNode printers: {error}", 8000
+                f"Could not load local printers: {error}", 8000
             )
             return
 
         self.artboard_panel.set_label_printers(printers)
         self.statusBar().showMessage(
-            f"Loaded {len(printers)} PrintNode printer(s).", 5000
+            f"Loaded {len(printers)} local printer(s).", 5000
         )
 
     def _print_jig_sheet_labels(self, sheet_index: int) -> None:
@@ -1283,24 +1344,13 @@ class MainWindow(QMainWindow):
         printer_id = self.artboard_panel.label_printer_id()
         if not printer_id:
             self.statusBar().showMessage(
-                "Select or enter a PrintNode label printer before printing labels.",
+                "Select a local label printer before printing labels.",
                 7000,
             )
             return
 
         save_label_printer_id(printer_id)
-        try:
-            print_job_id = print_order_labels(printer_id, order_numbers)
-        except Exception as error:
-            self.statusBar().showMessage(
-                f"Label print failed for sheet {sheet_index + 1}: {error}", 9000
-            )
-            return
-
-        profile.labels_printed_sheets.add(sheet_index)
-        self.statusBar().showMessage(
-            f"Submitted labels for sheet {sheet_index + 1}: job {print_job_id}", 7000
-        )
+        self._queue_labels(profile, sheet_index, printer_id)
 
     def _copy_jig_sheet_order_numbers(self, sheet_index: int) -> None:
         profile = self._active_profile_if(
@@ -1360,16 +1410,18 @@ class MainWindow(QMainWindow):
             destination = destination.with_suffix(".pdf")
 
         try:
-            result = export_jig_mockup_pdf(
-                slot_layout,
-                destination,
-                settings.local_temp_directory,
-            )
+            task = dict(operation="mockup", layout=slot_layout, destination=destination, settings=settings)
+            job_id = self.job_queue.add(f"{profile.title} | Mockup", task)
+            key = (id(profile), None, ExportKind.PRINT)
+            self._job_contexts[job_id] = dict(key=key, profile=profile, index=None,
+                kind=ExportKind.PRINT, labels=False, was_locked=True, task=task)
+            self._pending_exports.add(key)
+            self._queue_dock.show()
         except Exception as error:
             self.statusBar().showMessage(f"Jig mockup export failed: {error}", 8000)
             return
 
-        self.statusBar().showMessage(f"Exported jig mockup: {result.path}", 7000)
+        self.statusBar().showMessage("Jig mockup queued.", 7000)
 
     def _export_sheet(self, sheet_index: int, kind_name: str) -> None:
         profile = self._active_profile()
@@ -1389,28 +1441,7 @@ class MainWindow(QMainWindow):
             return
 
         kind = ExportKind(kind_name)
-        export_number = self._export_number_for_sheet(profile, sheet_index)
-        try:
-            result = export_sheet_pdf(
-                self.viewport.export_sheet_data(
-                    sheet_index, marker_pattern=export_number
-                ),
-                kind,
-                self.artboard_panel.export_settings(),
-                export_number=export_number,
-            )
-            self._commit_export_number(profile, sheet_index, export_number)
-        except Exception as error:
-            self.statusBar().showMessage(
-                f"Export failed for sheet {sheet_index + 1} {kind.value}: {error}", 8000
-            )
-            return
-
-        profile.exported_sheets.add((sheet_index, kind))
-        self._refresh_sheet_panel()
-        self.statusBar().showMessage(
-            f"Exported {kind.value} sheet {sheet_index + 1}: {result.path}", 7000
-        )
+        self._queue_export(profile, sheet_index, kind)
 
     def _export_jig_sheet(self, sheet_index: int) -> None:
         profile = self._active_profile_if(
@@ -1421,28 +1452,7 @@ class MainWindow(QMainWindow):
         if profile is None:
             return
 
-        settings = self.artboard_panel.export_settings()
-        export_number = self._export_number_for_sheet(profile, sheet_index)
-        try:
-            destination = self._jig_sheet_destination(settings, export_number)
-            result = export_jig_layout_pdf(
-                [self.viewport.export_sheet_data(sheet_index)],
-                destination,
-                settings.local_temp_directory,
-            )
-            self._commit_export_number(profile, sheet_index, export_number)
-        except Exception as error:
-            self.statusBar().showMessage(
-                f"Jig export failed for sheet {sheet_index + 1}: {error}", 8000
-            )
-            return
-
-        profile.exported_sheets.add((sheet_index, ExportKind.PRINT))
-        self.viewport.set_jig_sheet_locked(sheet_index)
-        self._refresh_sheet_panel()
-        self.statusBar().showMessage(
-            f"Exported jig sheet {sheet_index + 1}: {result.path}", 7000
-        )
+        self._queue_export(profile, sheet_index, ExportKind.PRINT)
 
     def _jig_sheet_destination(self, settings, export_number: int) -> Path:  # type: ignore[no-untyped-def]
         if (
@@ -1452,7 +1462,7 @@ class MainWindow(QMainWindow):
             raise ValueError("jig print export directory is not configured")
         return (
             settings.jig_print_directory
-            / f"jig_sheet_{export_number:03d}.pdf"
+            / f"{export_number:03d}_jig_sheet.pdf"
         )
 
     def _export_number_for_sheet(self, profile: ProfileTab, sheet_index: int) -> int:
@@ -1484,118 +1494,150 @@ class MainWindow(QMainWindow):
 
     def _export_all_pending(self) -> None:
         profile = self._active_profile()
-        if profile.kind == NestProfileKind.JIG:
-            exported = 0
-            labels_printed = 0
+        printer = self.artboard_panel.label_printer_id()
+        for index in self.viewport.exportable_sheet_indices():
+            kinds = (ExportKind.PRINT,) if profile.kind == NestProfileKind.JIG else (ExportKind.PRINT, ExportKind.CUT)
+            dependency = None
+            for kind in kinds:
+                if (index, kind) not in profile.exported_sheets:
+                    dependency = self._queue_export(profile, index, kind)
+            if profile.kind == NestProfileKind.JIG and index not in profile.labels_printed_sheets:
+                if self._sheet_order_numbers(index):
+                    if printer and (dependency is not None or (index, ExportKind.PRINT) in profile.exported_sheets):
+                        self._queue_labels(profile, index, printer, dependency=dependency)
+                    else:
+                        self.statusBar().showMessage("PDFs queued. Select a local printer to print labels.", 9000)
+
+    def _queue_export(self, profile, sheet_index, kind):
+        key = (id(profile), sheet_index, kind)
+        if key in self._pending_exports:
+            return next((job_id for job_id, context in self._job_contexts.items()
+                         if context["key"] == key and not context["labels"]
+                         and not self.job_queue.jobs.get(job_id, {}).get("done", True)), None)
+        number = self._export_number_for_sheet(profile, sheet_index)
+        viewport = profile.viewport
+        try:
             settings = self.artboard_panel.export_settings()
-            sheet_indices = self.viewport.exportable_sheet_indices()
-            labels_pending = any(
-                self._sheet_order_numbers(sheet_index)
-                and sheet_index not in profile.labels_printed_sheets
-                for sheet_index in sheet_indices
-            )
-            printer_id = self.artboard_panel.label_printer_id()
-            if labels_pending and not printer_id:
-                self.statusBar().showMessage(
-                    "Select or enter a PrintNode label printer before exporting all.",
-                    7000,
-                )
-                return
-            if labels_pending:
-                save_label_printer_id(printer_id)
+            task = dict(operation="jig" if profile.kind == NestProfileKind.JIG else "sheet",
+                        sheet=viewport.export_sheet_data(sheet_index, marker_pattern=number, defer_masks=True),
+                        settings=settings, kind=kind, number=number)
+            if profile.kind == NestProfileKind.JIG:
+                task["destination"] = self._jig_sheet_destination(settings, number)
+            items = [item for item in viewport.image_items()
+                     if viewport.item_sheet_index(item) == sheet_index]
+            task["receipts"] = [(str(item.data(15)), int(item.data(16)))
+                                for item in items if item.data(15)] if kind == ExportKind.PRINT else []
+            job_id = self.job_queue.add(f"{number:03d} | {profile.title} | {kind.value}", task)
+            self._commit_export_number(profile, sheet_index, number)
+            was_locked = viewport.is_jig_sheet_locked(sheet_index)
+            if profile.kind == NestProfileKind.JIG:
+                viewport.set_jig_sheet_locked(sheet_index)
+            self._pending_exports.add(key)
+            self._job_contexts[job_id] = dict(key=key, profile=profile, index=sheet_index,
+                kind=kind, labels=False, was_locked=was_locked, task=task)
+            self._queue_dock.show()
+            self._schedule_queue_panel_refresh()
+            return job_id
+        except Exception as error:
+            self.statusBar().showMessage(f"Could not queue sheet {sheet_index + 1}: {error}", 9000)
+            return None
 
-            for sheet_index in sheet_indices:
-                pdf_pending = (
-                    sheet_index,
-                    ExportKind.PRINT,
-                ) not in profile.exported_sheets
-                order_numbers = self._sheet_order_numbers(sheet_index)
-                sheet_labels_pending = (
-                    bool(order_numbers)
-                    and sheet_index not in profile.labels_printed_sheets
-                )
-                if not pdf_pending and not sheet_labels_pending:
-                    continue
-
-                if pdf_pending:
-                    export_number = self._export_number_for_sheet(profile, sheet_index)
-                    try:
-                        export_jig_layout_pdf(
-                            [self.viewport.export_sheet_data(sheet_index)],
-                            self._jig_sheet_destination(settings, export_number),
-                            settings.local_temp_directory,
-                        )
-                        self._commit_export_number(profile, sheet_index, export_number)
-                    except Exception as error:
-                        self._refresh_sheet_panel()
-                        self.statusBar().showMessage(
-                            f"Export all stopped on jig sheet {sheet_index + 1}: {error}",
-                            9000,
-                        )
-                        return
-                    profile.exported_sheets.add((sheet_index, ExportKind.PRINT))
-                    self.viewport.set_jig_sheet_locked(sheet_index)
-                    exported += 1
-
-                if sheet_labels_pending:
-                    try:
-                        print_order_labels(printer_id, order_numbers)
-                    except Exception as error:
-                        self._refresh_sheet_panel()
-                        self.statusBar().showMessage(
-                            "Export all stopped after writing jig sheet "
-                            f"{sheet_index + 1}; label print failed: {error}",
-                            9000,
-                        )
-                        return
-                    profile.labels_printed_sheets.add(sheet_index)
-                    labels_printed += 1
-
-            self._refresh_sheet_panel()
-            self.statusBar().showMessage(
-                "Export all complete: "
-                f"{exported} jig file(s) written, "
-                f"{labels_printed} label job(s) submitted.",
-                7000,
-            )
+    def _queue_labels(self, profile, sheet_index, printer, dependency=None):
+        key = (id(profile), sheet_index, ExportKind.PRINT)
+        if key in self._pending_labels:
             return
-        if profile.kind != NestProfileKind.SHEET:
-            self.statusBar().showMessage(
-                "Sheet export is only available for sheet profiles.", 5000
-            )
+        if dependency is None:
+            dependency = next((job_id for job_id, context in self._job_contexts.items()
+                               if context["key"] == key and not context["labels"]
+                               and not self.job_queue.jobs.get(job_id, {}).get("done", True)), None)
+        orders = []
+        items = [item for item in profile.viewport.image_items()
+                 if profile.viewport.item_sheet_index(item) == sheet_index]
+        for item in items:
+            order = str(item.data(HOT_FOLDER_ORDER_DATA_KEY) or "").strip()
+            if order and order not in orders:
+                orders.append(order)
+        if not orders:
             return
+        title_page = self.artboard_panel.label_title_page_enabled()
+        path = self._export_paths.get(key)
+        if title_page and path is None and dependency is None:
+            self.statusBar().showMessage("Export this jig first to use its filename as the label title.", 9000)
+            return
+        task = dict(operation="download", orders=orders, printer=printer,
+                    title_page=title_page, title=path.name if title_page and path else "")
+        number = self._export_number_for_sheet(profile, sheet_index)
+        job_id = self.job_queue.add(f"{number:03d} | Labels | {profile.title}", task,
+                                    dependency=dependency)
+        self._pending_labels.add(key)
+        self._job_contexts[job_id] = dict(key=key, profile=profile, index=sheet_index,
+            kind=ExportKind.PRINT, labels=True)
+        self._queue_dock.show()
 
-        exported = 0
-        for sheet_index in self.viewport.exportable_sheet_indices():
-            export_number = self._export_number_for_sheet(profile, sheet_index)
-            for kind in (ExportKind.PRINT, ExportKind.CUT):
-                if (sheet_index, kind) in profile.exported_sheets:
-                    continue
-                try:
-                    export_sheet_pdf(
-                        self.viewport.export_sheet_data(
-                            sheet_index, marker_pattern=export_number
-                        ),
-                        kind,
-                        self.artboard_panel.export_settings(),
-                        export_number=export_number,
-                    )
-                    self._commit_export_number(
-                        profile, sheet_index, export_number
-                    )
-                except Exception as error:
-                    self.statusBar().showMessage(
-                        f"Export all stopped on sheet {sheet_index + 1} {kind.value}: {error}",
-                        9000,
-                    )
-                    return
-                profile.exported_sheets.add((sheet_index, kind))
-                exported += 1
+    def _job_restarted(self, job_id):
+        context = self._job_contexts.get(job_id)
+        if context:
+            pending = self._pending_labels if context["labels"] else self._pending_exports
+            pending.add(context["key"])
+            if not context["labels"] and context["index"] is not None:
+                context["profile"].viewport.set_jig_sheet_locked(context["index"])
 
+    def _clear_job_contexts(self, keys):
+        for key in keys:
+            self._job_contexts.pop(key, None)
+
+    def _schedule_queue_panel_refresh(self):
+        if not self._queue_panel_refresh_scheduled:
+            self._queue_panel_refresh_scheduled = True
+            QTimer.singleShot(0, self._refresh_queue_panel)
+
+    def _refresh_queue_panel(self):
+        self._queue_panel_refresh_scheduled = False
         self._refresh_sheet_panel()
-        self.statusBar().showMessage(
-            f"Export all complete: {exported} file(s) written.", 7000
-        )
+
+    def _job_finished(self, job_id, result, error):
+        context = self._job_contexts.get(job_id)
+        if context is None:
+            return
+        profile, index, key = context["profile"], context["index"], context["key"]
+        pending = self._pending_labels if context["labels"] else self._pending_exports
+        pending.discard(key)
+        if error and not (isinstance(result, dict) and result.get("result")):
+            if not context["labels"] and not context["was_locked"] and index is not None:
+                profile.viewport.set_jig_sheet_locked(index, False)
+            self.statusBar().showMessage(f"Job failed: {error}", 15000)
+        elif context["labels"]:
+            if index is not None:
+                profile.labels_printed_sheets.add(index)
+            self.statusBar().showMessage(str(result), 7000)
+        else:
+            path = result["result"].path
+            if index is not None:
+                original = context["task"]["sheet"]
+                current = profile.viewport.export_sheet_data(index,
+                    marker_pattern=context["task"]["number"], defer_masks=True)
+                if replace(current, sheet_index=original.sheet_index) == original:
+                    profile.exported_sheets.add((index, context["kind"]))
+                    self._export_paths[key] = path
+            receipt_error = result.get("receipt_error")
+            if receipt_error:
+                self.job_queue.jobs[job_id]["row"].setText(2, "PDF saved; recovery update failed")
+                self.statusBar().showMessage(f"PDF saved to {path}, but recovery state failed: {receipt_error}", 20000)
+            else:
+                self.statusBar().showMessage(f"Exported: {path}", 7000)
+        if profile is self._active_profile():
+            self._schedule_queue_panel_refresh()
+
+    def closeEvent(self, event):
+        if self.job_queue.busy():
+            self._queue_dock.show()
+            self.statusBar().showMessage("Jobs are still running. Close again after the queue finishes.", 9000)
+            event.ignore()
+            return
+        self.job_queue.shutdown()
+        self._closing = True
+        self._hot_folder_timer.stop()
+        super().closeEvent(event)
 
     def _refresh_sheet_panel(self) -> None:
         profile = self._active_profile()

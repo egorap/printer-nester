@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSettings
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -217,12 +217,12 @@ class ArtboardPanel(QWidget):
         self._label_printer_combo.blockSignals(True)
         self._label_printer_combo.clear()
         for printer in printers:
-            printer_id = str(getattr(printer, "printer_id", "")).strip()
+            printer_id = printer if isinstance(printer, str) else str(getattr(printer, "printer_id", "")).strip()
             if not printer_id:
                 continue
             display_name = str(getattr(printer, "display_name", printer_id)).strip()
             self._label_printer_combo.addItem(
-                f"{printer_id} - {display_name}", printer_id
+                printer_id if isinstance(printer, str) else f"{printer_id} - {display_name}", printer_id
             )
         if selected_id and self._label_printer_combo.findData(selected_id) < 0:
             self._label_printer_combo.addItem(selected_id, selected_id)
@@ -470,7 +470,9 @@ class ArtboardPanel(QWidget):
         self._label_printer_combo = QComboBox()
         self._label_printer_combo.setEditable(True)
         self._label_printer_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self._label_printer_combo.setPlaceholderText("Printer id")
+        self._label_printer_combo.setPlaceholderText("Local printer name")
+        self._label_printer_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self._label_printer_combo.setMinimumContentsLength(12)
         saved_label_printer_id = load_label_printer_id()
         if saved_label_printer_id:
             self._label_printer_combo.addItem(
@@ -482,7 +484,7 @@ class ArtboardPanel(QWidget):
         )
         refresh_printers_button = QPushButton("Refresh Printers")
         refresh_printers_button.setToolTip(
-            "Loads available printers from PrintNode using PRINTNODE_KEY."
+            "Loads printers installed on this computer."
         )
         refresh_printers_button.clicked.connect(
             self.refresh_label_printers_requested.emit
@@ -492,6 +494,11 @@ class ArtboardPanel(QWidget):
         label_printer_row.setSpacing(6)
         label_printer_row.addWidget(self._label_printer_combo, 1)
         label_printer_row.addWidget(refresh_printers_button)
+        self._label_title_page = QCheckBox("Label title page (print filename)")
+        self._label_title_page.setChecked(QSettings().value("labels/title_page", True, type=bool))
+        self._label_title_page.toggled.connect(
+            lambda checked: QSettings().setValue("labels/title_page", checked)
+        )
 
         layout.addWidget(mask_title)
         layout.addLayout(mask_row)
@@ -504,6 +511,7 @@ class ArtboardPanel(QWidget):
         layout.addSpacing(6)
         layout.addWidget(label_printer_title)
         layout.addLayout(label_printer_row)
+        layout.addWidget(self._label_title_page)
         for input_widget in (
             self._slot_width_input,
             self._slot_height_input,
@@ -916,6 +924,9 @@ class ArtboardPanel(QWidget):
         layout.addLayout(header)
         layout.addWidget(scroll)
         return section
+
+    def label_title_page_enabled(self) -> bool:
+        return self._label_title_page.isChecked()
 
     def _build_sheet_row(self, sheet: SheetPanelRow) -> QWidget:
         row = QFrame()

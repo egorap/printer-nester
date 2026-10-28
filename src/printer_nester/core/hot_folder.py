@@ -4,7 +4,9 @@ from dataclasses import dataclass
 import json
 from pathlib import Path, PurePosixPath
 import shutil
+import sqlite3
 import time
+import uuid
 import zipfile
 
 from printer_nester.core.artwork_import import SUPPORTED_ARTWORK_EXTENSIONS
@@ -50,6 +52,55 @@ class PreparedHotFolderPackage:
     order: HotFolderOrder
     zip_path: Path
     extract_dir: Path
+    exported_indices: frozenset[int] = frozenset()
+
+
+def _progress_database(processing: Path):
+    connection = sqlite3.connect(processing / "export-progress.sqlite3", timeout=30)
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS exported (package TEXT, item INTEGER, pdf TEXT, "
+        "PRIMARY KEY(package, item))"
+    )
+    return connection
+
+
+def record_exported_items(receipts: list[tuple[str, int]], pdf_path: Path) -> None:
+    """Commit per-copy receipts only after the destination PDF was committed."""
+    by_directory: dict[Path, list[tuple[str, int, str]]] = {}
+    for package_path, index in receipts:
+        package = Path(package_path)
+        by_directory.setdefault(package.parent, []).append(
+            (package.name, index, str(pdf_path))
+        )
+    for directory, rows in by_directory.items():
+        connection = _progress_database(directory)
+        try:
+            with connection:
+                connection.executemany("INSERT OR REPLACE INTO exported VALUES (?, ?, ?)", rows)
+        finally:
+            connection.close()
+        for name in {row[0] for row in rows}:
+            archive_completed_package(directory / name)
+
+
+def archive_completed_package(package_path: Path) -> None:
+    """Keep extracted sources stable for open viewports and other export workers."""
+    manifest_path = package_path.with_suffix("") / MANIFEST_NAME
+    if not package_path.exists() or not manifest_path.exists():
+        return
+    order = _read_manifest(json.loads(manifest_path.read_text(encoding="utf-8")), manifest_path.parent)
+    connection = _progress_database(package_path.parent)
+    try:
+        count = connection.execute(
+            "SELECT COUNT(*) FROM exported WHERE package = ?", (package_path.name,)
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    if count == order.total_quantity:
+        try:
+            _move_unique(package_path, package_path.parent.parent / "done")
+        except FileNotFoundError:
+            pass  # Another completed sheet may have archived the same package.
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,31 +136,57 @@ def ensure_hot_folder_structure(root: Path) -> HotFolderPaths:
 
 
 def prepare_hot_folder_packages(
-    root: Path, min_age_seconds: float = 0.0
+    root: Path, min_age_seconds: float = 0.0,
+    loaded_packages: set[Path] | None = None,
 ) -> HotFolderScanResult:
     paths = ensure_hot_folder_structure(root)
     packages: list[PreparedHotFolderPackage] = []
     errors: list[str] = []
 
-    for source_zip in sorted(paths.incoming.glob("*.zip")):
-        if not _is_ready_package(source_zip, min_age_seconds):
+    sources = sorted(paths.processing.glob("*.zip")) + sorted(paths.incoming.glob("*.zip"))
+    for source_zip in sources:
+        if source_zip in (loaded_packages or set()):
+            continue
+        if source_zip.parent == paths.incoming and not _is_ready_package(source_zip, min_age_seconds):
             continue
         processing_zip: Path | None = None
         extract_dir: Path | None = None
+        validated = False
         try:
-            processing_zip = _move_unique(source_zip, paths.processing)
-            extract_dir = _unique_directory(paths.processing / processing_zip.stem)
-            order = _extract_order_zip(processing_zip, extract_dir)
+            if source_zip.parent == paths.processing:
+                processing_zip = source_zip
+            else:
+                processing_zip = paths.processing / f"{source_zip.stem}_{uuid.uuid4().hex}.zip"
+                source_zip.rename(processing_zip)
+            extract_dir = paths.processing / processing_zip.stem
+            if (extract_dir / MANIFEST_NAME).exists():
+                order = _read_manifest(json.loads((extract_dir / MANIFEST_NAME).read_text(encoding="utf-8")), extract_dir)
+            else:
+                order = _extract_order_zip(processing_zip, extract_dir)
+            validated = True
+            connection = _progress_database(paths.processing)
+            try:
+                exported = frozenset(row[0] for row in connection.execute(
+                    "SELECT item FROM exported WHERE package = ?", (processing_zip.name,)
+                ))
+            finally:
+                connection.close()
+            if set(range(order.total_quantity)) <= exported:
+                _move_unique(processing_zip, paths.done)
+                continue
             packages.append(
                 PreparedHotFolderPackage(
                     order=order,
                     zip_path=processing_zip,
                     extract_dir=extract_dir,
+                    exported_indices=exported,
                 )
             )
         except Exception as error:
             message = f"{source_zip.name}: {error}"
             errors.append(message)
+            if validated or source_zip.parent == paths.processing:
+                continue  # A transient recovery/database failure must not discard orders.
             if extract_dir is not None and extract_dir.exists():
                 shutil.rmtree(extract_dir)
             failed_zip = processing_zip if processing_zip is not None else source_zip

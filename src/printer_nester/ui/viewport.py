@@ -1115,7 +1115,8 @@ class PrintViewport(QGraphicsView):
         return pixmap
 
     def export_sheet_data(
-        self, sheet_index: int, marker_pattern: int | None = None
+        self, sheet_index: int, marker_pattern: int | None = None,
+        defer_masks: bool = False,
     ) -> ExportSheet:
         sheet_rect = self._sheet_rect_for_index(sheet_index)
         sheet_top_left = sheet_rect.topLeft()
@@ -1131,7 +1132,18 @@ class PrintViewport(QGraphicsView):
             local_rect = item_rect.translated(
                 QPointF(-sheet_top_left.x(), -sheet_top_left.y())
             )
-            masked_png = self._masked_png_bytes_for_item(item)
+            masked_png = None if defer_masks else self._masked_png_bytes_for_item(item)
+            mask_path = None
+            mask_relative_rect = None
+            if defer_masks and self._slot_layout is not None and self._jig_mask_path:
+                slot = self._slot_rect_for_item(item)
+                if slot is not None and not item_rect.isEmpty():
+                    mask_path = self._jig_mask_path
+                    mask_relative_rect = (
+                        (slot.left() - item_rect.left()) / item_rect.width(),
+                        (slot.top() - item_rect.top()) / item_rect.height(),
+                        slot.width() / item_rect.width(), slot.height() / item_rect.height(),
+                    )
             artworks.append(
                 ExportArtwork(
                     path=Path(str(item.data(0))),
@@ -1149,6 +1161,8 @@ class PrintViewport(QGraphicsView):
                     rotation=int(_item_rotation(item)) % 360,
                     page_index=int(item.data(6) or 0),
                     image_bytes=masked_png,
+                    mask_path=mask_path,
+                    mask_relative_rect=mask_relative_rect,
                 )
             )
 
